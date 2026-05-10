@@ -564,27 +564,26 @@ export class Scene {
       this._t += dt;
       for (const cb of this.tickCallbacks) cb(dt);
 
-      // Camera tracking — VERY subtle pan/tilt/pitch toward dice subject + small mouse parallax.
+      // Camera tracking — extremely subtle. The look-at is *scaled down* from the
+      // subject so even an extreme dice position only tilts the camera ≤ ~2°.
       this._computeSubject(this._camLookTarget);
-      this._camLook.lerp(this._camLookTarget, 0.05);
+      this._camLook.lerp(this._camLookTarget, 0.04);
 
       // Smoothed mouse position
-      this._mouseX += (this._mouseNX - this._mouseX) * 0.05;
-      this._mouseY += (this._mouseNY - this._mouseY) * 0.05;
+      this._mouseX += (this._mouseNX - this._mouseX) * 0.04;
+      this._mouseY += (this._mouseNY - this._mouseY) * 0.04;
 
-      // Tiny idle bob (much reduced from before)
-      const bobX = Math.sin(this._t * 0.35) * 0.04;
-      const bobY = Math.sin(this._t * 0.25 + 1.7) * 0.025;
-      const bobZ = Math.cos(this._t * 0.22 + 0.9) * 0.04;
+      // Tiny idle bob — barely perceptible drift
+      const bobX = Math.sin(this._t * 0.35) * 0.02;
+      const bobY = Math.sin(this._t * 0.25 + 1.7) * 0.012;
+      const bobZ = Math.cos(this._t * 0.22 + 0.9) * 0.02;
 
-      // Subject-following dolly: very small bias toward dice cluster.
-      const subjX = this._camLook.x * 0.018;
-      const subjY = Math.max(0, this._camLook.y) * 0.030;
-      const subjZ = this._camLook.z * 0.015;
-
-      // Mouse parallax — slight lean in the direction the cursor is.
-      const mouseShiftX = this._mouseX * 0.35;
-      const mouseShiftY = -this._mouseY * 0.18;
+      // Position dolly — very minor bias toward subject + cursor.
+      const subjX = this._camLook.x * 0.008;
+      const subjY = Math.max(0, this._camLook.y) * 0.012;
+      const subjZ = this._camLook.z * 0.006;
+      const mouseShiftX = this._mouseX * 0.12;
+      const mouseShiftY = -this._mouseY * 0.06;
 
       this.camera.position.set(
         this._camBase.x + bobX + subjX + mouseShiftX,
@@ -592,10 +591,14 @@ export class Scene {
         this._camBase.z + bobZ + subjZ,
       );
 
-      // Look-at also shifts slightly with mouse so the cursor's direction subtly leads the eye.
-      const lookX = this._camLook.x + this._mouseX * 0.35;
-      const lookZ = this._camLook.z + this._mouseY * 0.20;
-      this.camera.lookAt(lookX, this._camLook.y, lookZ);
+      // Look-at: scale subject + mouse offsets way down so the camera tilts only
+      // a couple degrees even when dice are far across the table or the cursor
+      // is at a screen edge. (Camera is ~19u from origin; ≤0.6 units of offset
+      // works out to ≤2° angular change.)
+      const lookX = this._camLook.x * 0.05 + this._mouseX * 0.18;
+      const lookY = this._camLook.y * 0.04;
+      const lookZ = this._camLook.z * 0.05 + this._mouseY * 0.10;
+      this.camera.lookAt(lookX, lookY, lookZ);
 
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(loop);
