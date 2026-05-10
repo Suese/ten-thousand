@@ -225,24 +225,60 @@ function createChamferedDieGeometry(size = 1, chamfer = 0.08) {
 
 function makeDieMaterials(scheme) {
   const isGold = scheme === 'gold';
-  const faceMats = FACE_VALUES.map(v => new THREE.MeshPhysicalMaterial({
-    map: pipTexture(v, scheme),
-    roughness: isGold ? 0.22 : 0.32,
-    metalness: isGold ? 0.85 : 0.0,
-    clearcoat: 0.45,
-    clearcoatRoughness: isGold ? 0.12 : 0.18,
-    sheen: 0.1,
-    sheenColor: new THREE.Color(0xffffff),
-  }));
-  const bodyMat = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color(isGold ? '#d4a017' : '#c8102e'),
-    roughness: isGold ? 0.22 : 0.35,
-    metalness: isGold ? 0.85 : 0.0,
-    clearcoat: 0.55,
-    clearcoatRoughness: isGold ? 0.12 : 0.2,
-    emissive: new THREE.Color(isGold ? '#3a2400' : '#000000'),
-    emissiveIntensity: isGold ? 0.35 : 1,
+
+  const faceMats = FACE_VALUES.map(v => {
+    if (isGold) {
+      return new THREE.MeshPhysicalMaterial({
+        map: pipTexture(v, scheme),
+        roughness: 0.22, metalness: 0.85,
+        clearcoat: 0.5, clearcoatRoughness: 0.12,
+        sheen: 0.1, sheenColor: new THREE.Color(0xffffff),
+      });
+    }
+    // Glassy red — the pip texture sits on the surface; transmission lets
+    // light pass through with a slight cherry-red tint.
+    return new THREE.MeshPhysicalMaterial({
+      map: pipTexture(v, scheme),
+      roughness: 0.06,
+      metalness: 0.0,
+      clearcoat: 0.85,
+      clearcoatRoughness: 0.05,
+      transmission: 0.55,
+      thickness: 0.6,
+      ior: 1.5,
+      attenuationColor: new THREE.Color('#a8132a'),
+      attenuationDistance: 1.4,
+      transparent: true,
+      side: THREE.DoubleSide,
+      sheen: 0.15,
+      sheenColor: new THREE.Color(0xffffff),
+    });
   });
+
+  const bodyMat = isGold
+    ? new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color('#d4a017'),
+        roughness: 0.22, metalness: 0.85,
+        clearcoat: 0.55, clearcoatRoughness: 0.12,
+        emissive: new THREE.Color('#3a2400'),
+        emissiveIntensity: 0.35,
+      })
+    : new THREE.MeshPhysicalMaterial({
+        // Cherry red glass body for the chamfered edges.
+        color: new THREE.Color('#d8243f'),
+        roughness: 0.04,
+        metalness: 0.0,
+        clearcoat: 0.95,
+        clearcoatRoughness: 0.03,
+        transmission: 0.85,
+        thickness: 0.8,
+        ior: 1.5,
+        attenuationColor: new THREE.Color('#a8132a'),
+        attenuationDistance: 1.2,
+        transparent: true,
+        side: THREE.DoubleSide,
+      });
+
   return [...faceMats, bodyMat];
 }
 

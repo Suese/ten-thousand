@@ -165,29 +165,30 @@ export function renderGameState(state, myId) {
     }
   }
 
-  // Turn banner
+  // Turn banner — always shows whose turn it is + their unbanked total so the
+  // risk of busting is constantly visible.
   const banner = els.turnBanner();
   let bannerText = '';
-  if (phase === 'opening_roll' || phase === 'rolling' && state.openingActiveId) {
+  if (phase === 'opening_roll' || (phase === 'rolling' && state.openingActiveId)) {
     const name = state.players.find(p => p.id === state.openingActiveId)?.name || '...';
-    bannerText = `Opening roll: ${name}`;
-  } else if (phase === 'awaiting_roll') {
-    const name = state.players.find(p => p.id === state.currentPlayerId)?.name || '...';
-    bannerText = isMyTurn ? 'Your turn — roll!' : `${name}'s turn`;
-  } else if (phase === 'rolling') {
-    bannerText = 'Rolling...';
-  } else if (phase === 'awaiting_keep') {
-    const name = state.players.find(p => p.id === state.currentPlayerId)?.name || '...';
-    bannerText = isMyTurn ? 'Pick scoring dice' : `${name} is picking dice`;
-  } else if (phase === 'busted') {
-    bannerText = 'BUST!';
+    bannerText = `<span class="banner-name">OPENING ROLL</span> <span class="banner-status">${name}</span>`;
   } else if (phase === 'game_over') {
-    bannerText = 'Game over';
+    bannerText = `<span class="banner-name">GAME OVER</span>`;
   } else {
-    bannerText = '';
-  }
-  if (state.turnPoints > 0) {
-    bannerText += `<span class="turn-pts">+${state.turnPoints} this turn</span>`;
+    const player = state.players.find(p => p.id === state.currentPlayerId);
+    const playerLabel = isMyTurn ? 'YOUR TURN' : (player ? `${player.name.toUpperCase()}'S TURN` : '...');
+    let status = '';
+    if (phase === 'awaiting_roll')      status = isMyTurn ? 'roll the dice' : 'thinking…';
+    else if (phase === 'rolling')       status = 'rolling…';
+    else if (phase === 'awaiting_keep') status = isMyTurn ? 'pick scoring dice' : 'picking dice';
+    else if (phase === 'busted')        status = 'BUST!';
+
+    bannerText = `<span class="banner-name">${playerLabel}</span>`;
+    if (status) bannerText += ` <span class="banner-status">${status}</span>`;
+
+    const tp = state.turnPoints || 0;
+    const dimClass = tp === 0 ? ' dim' : '';
+    bannerText += ` <span class="turn-pts${dimClass}">+${tp} to bank</span>`;
   }
   banner.innerHTML = bannerText;
 
@@ -200,12 +201,19 @@ export function renderGameState(state, myId) {
   els.bankBtn().style.display = inKeepPhase ? '' : 'none';
 }
 
-export function updateSelectionUI(selectedValues, turnPoints) {
+export function updateSelectionUI(selectedValues, turnPoints, opts = {}) {
   const info = els.selectionInfo();
+  const eligibleCount = opts.eligibleCount ?? -1;
+  // "Hot dice imminent": all 5 dice were on the table and the player selected all of them.
+  // The next roll will reroll all 5 with banked turn points preserved — show only Roll.
+  const hotDicePending = eligibleCount === 5 && selectedValues.length === 5;
+
   if (selectedValues.length === 0) {
     info.innerHTML = `<span>Click dice to keep them. <strong>+${turnPoints}</strong> banked this turn.</span>`;
     els.keepBtn().disabled = true;
     els.bankBtn().disabled = true;
+    els.keepBtn().classList.remove('hot');
+    els.bankBtn().style.display = '';
     return;
   }
   const r = evaluateKeep(selectedValues);
@@ -213,10 +221,19 @@ export function updateSelectionUI(selectedValues, turnPoints) {
     info.innerHTML = `<span class="reject">${r.reason}</span>`;
     els.keepBtn().disabled = true;
     els.bankBtn().disabled = true;
+    els.keepBtn().classList.remove('hot');
+    els.bankBtn().style.display = '';
+  } else if (hotDicePending) {
+    info.innerHTML = `<span class="accept">🔥 HOT DICE — keep all 5 for +${r.score} and roll again</span>`;
+    els.keepBtn().disabled = false;
+    els.keepBtn().classList.add('hot');
+    els.bankBtn().style.display = 'none';
   } else {
     info.innerHTML = `<span class="accept">Selection scores +${r.score}</span>`;
     els.keepBtn().disabled = false;
     els.bankBtn().disabled = false;
+    els.keepBtn().classList.remove('hot');
+    els.bankBtn().style.display = '';
   }
 }
 

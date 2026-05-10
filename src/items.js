@@ -32,7 +32,7 @@ export const ITEMS = {
   dookie: {
     name: 'Dookie Throw',
     icon: '💩',
-    cost: 400,
+    cost: 250,
     desc: "Aim and click anywhere on the table — splatters 7 sticky blobs in a shotgun spread.",
     when: 'anytime',
     needsAim: 'point',
@@ -40,14 +40,14 @@ export const ITEMS = {
   ice_rink: {
     name: 'Ice Rink',
     icon: '🧊',
-    cost: 500,
+    cost: 250,
     desc: 'Turn the felt into a sheet of ice — dice slide and bounce forever, much easier to flick.',
     when: 'anytime',
   },
   saw_blade: {
     name: 'Saw Blade',
     icon: '🪚',
-    cost: 800,
+    cost: 400,
     desc: 'A random un-locked die becomes a chainsaw of doom. Can miss. Destroys the saw die.',
     when: 'anytime',
   },

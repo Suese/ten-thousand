@@ -10,21 +10,37 @@ html, body {
   color: #e8ecf2;
 }
 
-/* Casino backdrop — slow pulsing radial vignette */
+/* Casino backdrop — slow drifting colored hot-spots */
 body::before {
   content: "";
   position: fixed;
   inset: -10%;
   z-index: 1;
   pointer-events: none;
-  background: radial-gradient(ellipse at center, rgba(255, 224, 122, 0.06) 0%, transparent 55%),
-              radial-gradient(ellipse at 20% 80%, rgba(255, 90, 140, 0.05) 0%, transparent 50%),
-              radial-gradient(ellipse at 80% 20%, rgba(90, 124, 255, 0.05) 0%, transparent 50%);
-  animation: bg-pulse 9s ease-in-out infinite alternate;
+  background: radial-gradient(ellipse at 50% 35%, rgba(255, 224, 122, 0.10) 0%, transparent 55%),
+              radial-gradient(ellipse at 18% 80%, rgba(255, 90, 140, 0.08) 0%, transparent 50%),
+              radial-gradient(ellipse at 82% 22%, rgba(90, 124, 255, 0.08) 0%, transparent 50%),
+              radial-gradient(ellipse at 30% 30%, rgba(120, 220, 200, 0.06) 0%, transparent 45%);
+  animation: bg-pulse 12s ease-in-out infinite alternate, bg-drift 30s ease-in-out infinite alternate;
+  background-size: 200% 200%;
 }
 @keyframes bg-pulse {
-  0% { filter: brightness(0.85); }
-  100% { filter: brightness(1.15); }
+  0%   { filter: brightness(0.85) saturate(0.95); }
+  100% { filter: brightness(1.15) saturate(1.1); }
+}
+@keyframes bg-drift {
+  0%   { background-position: 0% 0%, 0% 0%, 0% 0%, 0% 0%; }
+  100% { background-position: 30% 20%, -20% 30%, 25% -25%, -15% -10%; }
+}
+
+/* Vignette darkens the corners behind the UI without obscuring the table */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(ellipse 70% 70% at center, transparent 0%, transparent 45%, rgba(0,0,0,0.55) 100%);
 }
 
 #canvas-root {
@@ -274,8 +290,26 @@ button.primary:hover:not(:disabled) {
 #turn-banner .turn-pts {
   color: #ffe07a;
   font-weight: 700;
-  margin-left: 8px;
+  margin-left: 10px;
   text-shadow: 0 0 8px rgba(255, 224, 122, 0.6);
+}
+#turn-banner .turn-pts.dim {
+  color: #6c7488;
+  text-shadow: none;
+  font-weight: 500;
+}
+#turn-banner .banner-name {
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  font-size: 16px;
+}
+#turn-banner .banner-status {
+  color: #b8c1d4;
+  font-size: 13px;
+  font-weight: 400;
+  margin-left: 6px;
+  text-transform: lowercase;
+  font-style: italic;
 }
 #turn-banner.bust {
   border-color: #ff4d68;
@@ -340,6 +374,23 @@ button.primary:hover:not(:disabled) {
 #keep-btn:hover:not(:disabled) {
   background: linear-gradient(180deg, #fff0a0 0%, #ffaa55 100%);
   box-shadow: 0 0 22px rgba(255, 220, 100, 0.55);
+}
+#keep-btn.hot {
+  background: linear-gradient(180deg, #ff7c3a 0%, #ff3b3b 100%);
+  border-color: #ffa066;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  box-shadow: 0 0 18px rgba(255, 100, 60, 0.55);
+  animation: hotbtn-pulse 1.4s ease-in-out infinite alternate;
+}
+#keep-btn.hot:hover:not(:disabled) {
+  background: linear-gradient(180deg, #ffa05c 0%, #ff5050 100%);
+  box-shadow: 0 0 26px rgba(255, 130, 80, 0.75);
+}
+@keyframes hotbtn-pulse {
+  0%   { box-shadow: 0 0 12px rgba(255, 100, 60, 0.4); }
+  100% { box-shadow: 0 0 26px rgba(255, 150, 80, 0.85); }
 }
 #roll-btn {
   background: linear-gradient(180deg, #5a8cff 0%, #3a55c8 100%);

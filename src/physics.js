@@ -55,7 +55,7 @@ export class DicePhysics {
 
     // Weighted dice — set of indices with continuous torque bias toward 1-up.
     this.weightedDice = new Set();
-    this.weightedStrength = 1.6;
+    this.weightedStrength = 2.8;
 
     // Collision callback — set externally. Fires for significant impacts only.
     this.onCollision = null;
@@ -111,8 +111,8 @@ export class DicePhysics {
   setIceRink(on) {
     this.iceRink = !!on;
     // Slick — almost no contact friction, bouncy off walls, no velocity decay.
-    this.world.defaultContactMaterial.friction = on ? 0.002 : this._normalFriction;
-    this.world.defaultContactMaterial.restitution = on ? 0.72 : 0.22;
+    this.world.defaultContactMaterial.friction = on ? 0.001 : this._normalFriction;
+    this.world.defaultContactMaterial.restitution = on ? 0.78 : 0.22;
     for (const b of this.bodies) {
       b.linearDamping = on ? 0.0 : 0.08;
       b.angularDamping = on ? 0.0 : 0.12;

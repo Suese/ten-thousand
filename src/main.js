@@ -504,7 +504,19 @@ function redrawSelection() {
   }
   if (!currentState) return;
   const values = [...selection].map(i => currentState.diceState[i]?.value).filter(v => v != null);
-  ui.updateSelectionUI(values, currentState.turnPoints);
+
+  // Count dice that the player can actually pick from (un-locked, not destroyed/parked).
+  const destroyed = new Set(currentState.destroyed || []);
+  const hidden    = new Set(currentState.hiddenIndices || []);
+  const hiddenNow = new Set(currentState.hiddenNow || []);
+  let eligibleCount = 0;
+  for (let i = 0; i < currentState.diceState.length; i++) {
+    const d = currentState.diceState[i];
+    if (!d || d.locked) continue;
+    if (destroyed.has(i) || hidden.has(i) || hiddenNow.has(i)) continue;
+    eligibleCount++;
+  }
+  ui.updateSelectionUI(values, currentState.turnPoints, { eligibleCount });
 }
 
 function commitSelection(action) {
