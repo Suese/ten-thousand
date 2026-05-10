@@ -158,10 +158,10 @@ ui.bindShop({
         sendAction({ name: 'use_item', itemId });
         return;
       }
-      const hint =
-        itemId === 'weighted'
-          ? `${item.icon} Click the die to weight toward 1`
-          : `${item.icon} Click any un-locked die`;
+      let hint;
+      if (itemId === 'weighted')      hint = `${item.icon} Click the die to weight toward 1`;
+      else if (itemId === 'tornado')  hint = `${item.icon} Click a die to spin into a tornado`;
+      else                            hint = `${item.icon} Click any un-locked die`;
       enterAimMode(itemId, 'die', hint);
     } else {
       sendAction({ name: 'use_item', itemId });
@@ -341,7 +341,7 @@ function applyState(state) {
 
     // Surface effects
     scene.syncDookieZones(state.dookieZones || []);
-    scene.setIceRink(!!state.iceRinkUntilTs && state.iceRinkUntilTs > Date.now());
+    scene.setIceRink(!!state.iceRinkActive);
 
     // If we're not in awaiting_keep, clear local selection set
     if (state.phase !== 'awaiting_keep') {
@@ -491,7 +491,13 @@ function applyEvent(event) {
           }
         },
         ice_rink:      () => { for (let i = 0; i < 8; i++) setTimeout(() => sfx.tone(1500 + i * 200, 0.18, 'sine', 0.18), i * 50); },
-        saw_blade:     () => { sfx.glide(180, 250, 1.5, 'sawtooth', 0.32); sfx.glide(90, 110, 1.5, 'square', 0.25); },
+        tornado:       () => {
+          // Rushing wind — overlapping noise bursts + low rumble
+          for (let i = 0; i < 10; i++) {
+            setTimeout(() => sfx.noiseBurst(0.4 + Math.random() * 0.3, 350 + Math.random() * 700, 1.2, 0.22), i * 180);
+          }
+          sfx.glide(70, 110, 3, 'sine', 0.18);
+        },
       };
       idMap[event.itemId]?.();
       const cx = window.innerWidth / 2, cy = window.innerHeight / 2;

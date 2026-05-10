@@ -5,7 +5,6 @@ import { MAX_PLAYERS } from './colors.js';
 
 const WIN_SCORE = 10000;
 const DOOKIE_DURATION_MS = 30000;
-const ICE_DURATION_MS = 30000;
 const SAW_BLADE_DURATION_MS = 4000;
 
 // Authoritative game-state machine. Lives only on the host.
@@ -25,11 +24,6 @@ export class GameRoom {
 
     this.physics = new DicePhysics();
     this.physics.onCollision = (info) => {
-      // If the saw blade die slams another die, fire a blood-splatter event at the hit point.
-      const saw = this.activeEffects.sawBlade;
-      if (info.kind === 'dice' && saw && (info.aIndex === saw.dieIndex || info.bIndex === saw.dieIndex)) {
-        this.emitEvent({ type: 'blood_splat', point: info.point, intensity: info.intensity });
-      }
       // Throttled audio collision broadcast.
       const now = performance.now();
       if (!this._lastCollideEv) this._lastCollideEv = 0;
@@ -69,7 +63,7 @@ export class GameRoom {
       weightedDice: new Set(),   // dice indices being torque-biased toward 1 (this turn)
       hiddenNow: new Set(),      // dice currently sucked into a portable hole, restored next roll
       dookieZones: [],           // [{x, z, r, untilTs}]
-      iceRinkUntilTs: 0,         // timestamp; while > now, friction lowered
+      iceRinkActive: false,      // active for the entire current turn once cast
       sawBlade: null,            // { dieIndex, untilTs } or null
     };
   }
@@ -232,20 +226,21 @@ export class GameRoom {
         break;
       }
       case 'ice_rink': {
-        this.activeEffects.iceRinkUntilTs = Date.now() + ICE_DURATION_MS;
+        this.activeEffects.iceRinkActive = true;
         this.physics.setIceRink(true);
-        // Auto-revert when timer ends (host tick clears it)
-        extra = { until: this.activeEffects.iceRinkUntilTs };
+        // Stays active for the full turn — cleared on startTurn.
         break;
       }
-      case 'saw_blade': {
-        const idx = this.pickRandomEligibleDieIndex();
-        if (idx == null) {
+      case 'tornado': {
+        // Player picks the die that becomes the tornado.
+        let idx = (params && typeof params.dieIndex === 'number') ? params.dieIndex : null;
+        if (idx == null) idx = this.pickRandomEligibleDieIndex();
+        if (idx == null || this.diceState[idx]?.locked || this.activeEffects.destroyed.has(idx) || this.activeEffects.hiddenNow.has(idx)) {
           inv[itemId] = (inv[itemId] || 0) + 1;
-          this.emitEvent({ type: 'log', text: 'No eligible dice for Saw Blade.', kind: 'reject' });
+          this.emitEvent({ type: 'log', text: 'No eligible die for the Tornado.', kind: 'reject' });
           return;
         }
-        this.beginSawBlade(idx);
+        this.beginTornado(idx);
         extra = { dieIndex: idx };
         break;
       }
@@ -277,9 +272,11 @@ export class GameRoom {
     this._flickIndex = dieIndex;
   }
 
-  beginSawBlade(dieIndex) {
+  beginTornado(dieIndex) {
+    // Tornado spins a chosen die and uses it to knock other dice around. The
+    // tornado die is NOT destroyed — once the chaos ends everyone settles to
+    // new face values and the player can keep any of them like a normal roll.
     this.activeEffects.sawBlade = { dieIndex, untilTs: Date.now() + SAW_BLADE_DURATION_MS };
-    this.activeEffects.destroyed.add(dieIndex);
     this.physics.startSawBlade(dieIndex);
     this.phase = 'rolling';
     this.streaming = true;
@@ -425,7 +422,7 @@ export class GameRoom {
     this.activeEffects.hiddenNow.clear();
     this.activeEffects.dookieZones = [];
     this.physics.setDookieZones([]);
-    this.activeEffects.iceRinkUntilTs = 0;
+    this.activeEffects.iceRinkActive = false;
     this.physics.setIceRink(false);
     this.activeEffects.sawBlade = null;
     // Pulse transforms so all clients clear the previous turn's dice off the table.
@@ -479,11 +476,7 @@ export class GameRoom {
   // --- Physics tick: called by host's render loop ---
 
   tick(dt) {
-    // Auto-expire turn-scoped surface effects.
-    if (this.activeEffects.iceRinkUntilTs && Date.now() > this.activeEffects.iceRinkUntilTs) {
-      this.activeEffects.iceRinkUntilTs = 0;
-      this.physics.setIceRink(false);
-    }
+    // (Ice rink no longer time-expires; it lives until the next startTurn.)
     if (this.activeEffects.dookieZones.length) {
       const before = this.activeEffects.dookieZones.length;
       this.activeEffects.dookieZones = this.activeEffects.dookieZones.filter(z => Date.now() < z.untilTs);
@@ -792,7 +785,7 @@ export class GameRoom {
       hiddenNow: [...this.activeEffects.hiddenNow],
       hiddenIndices: this._hiddenForRoll || [],
       dookieZones: this.activeEffects.dookieZones.map(z => ({ ...z })),
-      iceRinkUntilTs: this.activeEffects.iceRinkUntilTs,
+      iceRinkActive: this.activeEffects.iceRinkActive,
       sawBlade: this.activeEffects.sawBlade ? { ...this.activeEffects.sawBlade } : null,
     };
   }

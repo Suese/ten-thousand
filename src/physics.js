@@ -185,33 +185,34 @@ export class DicePhysics {
 
   // Flick a die. If hitPoint is provided, the impulse direction is "into" the die
   // at that point — the die flies in the opposite direction of the click, like a real flick.
+  // Flicks are 4x more powerful on the ice rink (less friction + bigger impulse).
   flickDie(dieIndex, hitPoint = null) {
     const b = this.bodies[dieIndex];
     b.wakeUp();
+    const mult = this.iceRink ? 4 : 1;
     let vx, vy, vz;
     if (hitPoint) {
       const dx = hitPoint[0] - b.position.x;
       const dy = hitPoint[1] - b.position.y;
       const dz = hitPoint[2] - b.position.z;
       const len = Math.hypot(dx, dy, dz) || 1;
-      const force = 9;
+      const force = 9 * mult;
       // Push die away from the hit point.
       vx = -(dx / len) * force;
       vy = Math.max(2.5, -(dy / len) * force * 0.6 + 3);
       vz = -(dz / len) * force;
-      // Spin around an axis perpendicular to the flick direction.
-      const ax = (Math.random() - 0.5) * 14;
-      const ay = (Math.random() - 0.5) * 14;
-      const az = (Math.random() - 0.5) * 14;
+      const ax = (Math.random() - 0.5) * 14 * mult;
+      const ay = (Math.random() - 0.5) * 14 * mult;
+      const az = (Math.random() - 0.5) * 14 * mult;
       b.angularVelocity.set(ax, ay, az);
     } else {
-      vx = (Math.random() - 0.5) * 5;
+      vx = (Math.random() - 0.5) * 5 * mult;
       vy = 4.5 + Math.random() * 1.5;
-      vz = (Math.random() - 0.5) * 5;
+      vz = (Math.random() - 0.5) * 5 * mult;
       b.angularVelocity.set(
-        (Math.random() - 0.5) * 22,
-        (Math.random() - 0.5) * 22,
-        (Math.random() - 0.5) * 22,
+        (Math.random() - 0.5) * 22 * mult,
+        (Math.random() - 0.5) * 22 * mult,
+        (Math.random() - 0.5) * 22 * mult,
       );
     }
     b.velocity.set(vx, vy, vz);
