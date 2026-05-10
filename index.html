@@ -35,8 +35,8 @@
         <div class="divider"><span>or</span></div>
 
         <label>
-          Room code
-          <input id="join-code" type="text" maxlength="40" placeholder="abc-123-xyz" />
+          Room link or code
+          <input id="join-code" type="text" maxlength="500" placeholder="https://… or abc-123-xyz" />
         </label>
         <div class="row">
           <button id="join-btn">Join game</button>
@@ -49,10 +49,10 @@
     <div id="waiting" class="overlay hidden">
       <div class="panel">
         <h2>Waiting room</h2>
-        <p>Share this room code with friends:</p>
+        <p>Share this link — friends can join any time, even mid-game:</p>
         <div class="code-box">
           <code id="room-code"></code>
-          <button id="copy-code">Copy</button>
+          <button id="copy-code">Copy link</button>
         </div>
         <h3>Players</h3>
         <ul id="player-list"></ul>

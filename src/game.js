@@ -57,13 +57,25 @@ export class GameRoom {
   }
 
   addPlayer(id, name) {
-    if (this.phase !== 'lobby') return false;
     if (this.players.find(p => p.id === id)) return false;
     name = (name || 'Player').slice(0, 16);
     this.players.push({ id, name });
     this.totalScores[id] = 0;
+    // Hot-join: if the rotation has already been built, append them to the end.
+    // (During opening_roll, this.order is still empty — resolveOpeningRoll picks up
+    //  whoever is in this.players at that moment.)
+    if (this.order.length > 0 && !this.order.includes(id)) {
+      this.order.push(id);
+    }
+    if (this.phase !== 'lobby') {
+      this.emitEvent({ type: 'log', text: `${name} joined.` });
+    }
     this.emitState();
     return true;
+  }
+
+  getCurrentTransforms() {
+    return this.physics.getTransforms();
   }
 
   setName(id, name) {

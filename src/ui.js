@@ -73,8 +73,15 @@ export function persistName(name) {
   try { localStorage.setItem('diceName', name); } catch {}
 }
 
+export function buildRoomUrl(roomCode) {
+  const url = new URL(window.location.href);
+  url.hash = '';
+  url.searchParams.set('room', roomCode);
+  return url.toString();
+}
+
 export function renderWaitingRoom({ players, hostId, myId, roomCode, isHost }) {
-  els.roomCode().textContent = roomCode || '';
+  els.roomCode().textContent = roomCode ? buildRoomUrl(roomCode) : '';
   const list = els.playerList();
   list.innerHTML = '';
   for (const p of players) {

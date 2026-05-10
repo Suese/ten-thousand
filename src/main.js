@@ -95,8 +95,10 @@ async function startHost() {
     if (!action) return;
     if (action.name === 'join') {
       gameRoom.addPlayer(fromId, action.name);
-      // Send a focused state pulse to the new peer
+      // Catch the new peer up: state + a transforms snapshot so dice positions
+      // appear instantly if a turn is already in progress.
       host.sendTo(fromId, { type: 'state', state: gameRoom.snapshot() });
+      host.sendTo(fromId, { type: 'event', event: { type: 'transforms', t: gameRoom.getCurrentTransforms() } });
     } else {
       gameRoom.handleAction(fromId, action);
     }
@@ -113,9 +115,20 @@ async function startHost() {
 }
 
 // ---- Client bootstrap ----
+function extractRoomCode(input) {
+  const s = (input || '').trim();
+  if (!s) return '';
+  try {
+    const u = new URL(s);
+    const r = u.searchParams.get('room');
+    if (r) return r;
+  } catch {}
+  return s;
+}
+
 async function startClient() {
-  const code = ui.readJoinCode();
-  if (!code) { ui.setLobbyStatus('Enter a room code first.'); return; }
+  const code = extractRoomCode(ui.readJoinCode());
+  if (!code) { ui.setLobbyStatus('Enter a room link or code first.'); return; }
   myName = ui.readNameInput();
   ui.persistName(myName);
   ui.setLobbyStatus('Connecting...');
@@ -210,6 +223,12 @@ function applyEvent(event) {
       for (let i = 0; i < event.t.length; i++) {
         const t = event.t[i];
         scene.setDieTransform(i, [t[0], t[1], t[2]], [t[3], t[4], t[5], t[6]], true);
+      }
+      // Visibility may have flipped; re-apply lock rings from the latest state.
+      if (currentState && currentState.diceState) {
+        for (let i = 0; i < currentState.diceState.length; i++) {
+          scene.setLocked(i, !!currentState.diceState[i].locked);
+        }
       }
       break;
     case 'roll_settled':
