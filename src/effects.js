@@ -1,0 +1,102 @@
+// Casino-style particle effects: confetti, coin shower, score popups.
+// All DOM-based — no canvas needed, easy to layer over the three.js scene.
+
+const COLORS = ['#ffe07a', '#ffb347', '#ff7c8a', '#7cf3a0', '#5a9bff', '#d96cff', '#ffd400', '#ff5cf2'];
+
+function pickColor() {
+  return COLORS[Math.floor(Math.random() * COLORS.length)];
+}
+
+function spawn(el, vx, vy, gravity, life, rot) {
+  document.body.appendChild(el);
+  const start = performance.now();
+  const animate = (now) => {
+    const t = (now - start) / 1000;
+    if (t > life) { el.remove(); return; }
+    const px = vx * t;
+    const py = vy * t + 0.5 * gravity * t * t;
+    el.style.transform = `translate3d(${px}px, ${py}px, 0) rotate(${rot * t}deg)`;
+    el.style.opacity = String(Math.max(0, 1 - Math.pow(t / life, 2)));
+    requestAnimationFrame(animate);
+  };
+  requestAnimationFrame(animate);
+}
+
+export function confettiBurst(x, y, count = 40) {
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('div');
+    el.className = 'confetti';
+    el.style.background = pickColor();
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.width = (5 + Math.random() * 6) + 'px';
+    el.style.height = (8 + Math.random() * 10) + 'px';
+    const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.1;
+    const speed = 320 + Math.random() * 380;
+    const vx = Math.cos(angle) * speed;
+    const vy = Math.sin(angle) * speed;
+    const rot = (Math.random() - 0.5) * 1080;
+    spawn(el, vx, vy, 1300, 1.6 + Math.random() * 0.5, rot);
+  }
+}
+
+export function coinShower(x, y, count = 30) {
+  for (let i = 0; i < count; i++) {
+    setTimeout(() => {
+      const el = document.createElement('div');
+      el.className = 'coin';
+      el.textContent = '$';
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.9;
+      const speed = 380 + Math.random() * 360;
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed;
+      spawn(el, vx, vy, 1500, 1.8, (Math.random() - 0.5) * 720);
+    }, i * 25);
+  }
+}
+
+export function scorePopup(text, x, y, opts = {}) {
+  const el = document.createElement('div');
+  el.className = 'score-popup';
+  if (opts.big) el.classList.add('big');
+  if (opts.bust) el.classList.add('bust');
+  if (opts.bank) el.classList.add('bank');
+  el.textContent = text;
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1800);
+}
+
+export function flashScreen(color = '#ffe07a', alpha = 0.35) {
+  const el = document.createElement('div');
+  el.className = 'screen-flash';
+  el.style.background = color;
+  el.style.opacity = String(alpha);
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 500);
+}
+
+export function shake(targetEl, intensity = 6, duration = 350) {
+  if (!targetEl) return;
+  const start = performance.now();
+  const animate = (now) => {
+    const t = (now - start) / duration;
+    if (t >= 1) { targetEl.style.transform = ''; return; }
+    const k = (1 - t) * intensity;
+    const x = (Math.random() - 0.5) * 2 * k;
+    const y = (Math.random() - 0.5) * 2 * k;
+    targetEl.style.transform = `translate(${x}px, ${y}px)`;
+    requestAnimationFrame(animate);
+  };
+  requestAnimationFrame(animate);
+}
+
+// Center coordinates of an element for spawning effects from it
+export function centerOf(el) {
+  if (!el) return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}

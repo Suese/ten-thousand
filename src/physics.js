@@ -6,8 +6,8 @@ export class DicePhysics {
     this.world = new CANNON.World({ gravity: new CANNON.Vec3(0, -28, 0) });
     this.world.broadphase = new CANNON.SAPBroadphase(this.world);
     this.world.allowSleep = true;
-    this.world.defaultContactMaterial.restitution = 0.25;
-    this.world.defaultContactMaterial.friction = 0.45;
+    this.world.defaultContactMaterial.restitution = 0.22;
+    this.world.defaultContactMaterial.friction = 0.75;
 
     const ground = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
     ground.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
@@ -31,12 +31,12 @@ export class DicePhysics {
     this.bodies = [];
     for (let i = 0; i < 5; i++) {
       const b = new CANNON.Body({
-        mass: 0.3,
+        mass: 0.6,
         shape: new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.5)),
         sleepSpeedLimit: 0.15,
         sleepTimeLimit: 0.4,
-        linearDamping: 0.05,
-        angularDamping: 0.05,
+        linearDamping: 0.08,
+        angularDamping: 0.12,
       });
       b.allowSleep = true;
       b.position.set(20, -20, 0);
@@ -44,6 +44,20 @@ export class DicePhysics {
       this.bodies.push(b);
     }
     this.activeIndices = [];
+
+    // Collision callback — set externally. Fires for significant impacts only.
+    this.onCollision = null;
+    const dieBodySet = new Set(this.bodies);
+    for (const body of this.bodies) {
+      body.addEventListener('collide', (event) => {
+        if (!this.onCollision) return;
+        const speed = Math.abs(event.contact.getImpactVelocityAlongNormal?.() ?? 0);
+        if (speed < 1.2) return;
+        const otherIsDie = dieBodySet.has(event.body);
+        const intensity = Math.min(1, speed / 8);
+        this.onCollision({ kind: otherIsDie ? 'dice' : 'mat', intensity });
+      });
+    }
   }
 
   parkAll() {

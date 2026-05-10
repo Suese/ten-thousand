@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createDieMesh } from './dice.js';
+import { woodTexture, feltTexture, bumpFrom } from './textures.js';
 
 export class Scene {
   constructor(rootEl) {
@@ -8,6 +9,9 @@ export class Scene {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     rootEl.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -17,41 +21,90 @@ export class Scene {
     this.camera.position.set(0, 9.5, 8.5);
     this.camera.lookAt(0, 0, 0);
 
-    const hemi = new THREE.HemisphereLight(0xb8c6df, 0x0a0f18, 0.55);
+    // Subtle ambient hemisphere — cool sky, warm ground bounce
+    const hemi = new THREE.HemisphereLight(0xb8c6df, 0x382010, 0.35);
     this.scene.add(hemi);
 
-    const dir = new THREE.DirectionalLight(0xfff0d6, 1.2);
-    dir.position.set(5, 11, 6);
-    dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
-    dir.shadow.camera.left = -9;
-    dir.shadow.camera.right = 9;
-    dir.shadow.camera.top = 9;
-    dir.shadow.camera.bottom = -9;
-    dir.shadow.camera.near = 1;
-    dir.shadow.camera.far = 30;
-    dir.shadow.bias = -0.0005;
-    this.scene.add(dir);
+    // Key light — overhead casino spot, warm
+    const key = new THREE.DirectionalLight(0xfff0c8, 1.05);
+    key.position.set(4, 12, 4);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.camera.left = -10;
+    key.shadow.camera.right = 10;
+    key.shadow.camera.top = 10;
+    key.shadow.camera.bottom = -10;
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = 30;
+    key.shadow.bias = -0.0004;
+    key.shadow.radius = 3;
+    this.scene.add(key);
 
+    // Fill — cool counter-light from opposite side
+    const fill = new THREE.DirectionalLight(0x6a8cff, 0.25);
+    fill.position.set(-6, 8, -4);
+    this.scene.add(fill);
+
+    // Warm accent rim spotlight on the table to add casino mood
+    const accent = new THREE.SpotLight(0xff9b3d, 0.85, 18, Math.PI / 4, 0.55, 1.2);
+    accent.position.set(0, 7, 0);
+    accent.target.position.set(0, 0, 0);
+    this.scene.add(accent);
+    this.scene.add(accent.target);
+
+    // Soft red & blue side neon-ish accents (no shadow contribution)
+    const neonRed = new THREE.PointLight(0xff3050, 0.5, 12);
+    neonRed.position.set(-7, 1.5, -4);
+    this.scene.add(neonRed);
+    const neonBlue = new THREE.PointLight(0x4a6cff, 0.45, 12);
+    neonBlue.position.set(7, 1.5, 4);
+    this.scene.add(neonBlue);
+
+    // ----- Table felt -----
+    const felt = feltTexture();
+    felt.repeat.set(2, 1.4);
+    const feltBump = bumpFrom(felt);
     const tableGeom = new THREE.PlaneGeometry(14, 10);
-    const tableMat = new THREE.MeshStandardMaterial({ color: 0x1a4d2e, roughness: 0.9, metalness: 0 });
+    const tableMat = new THREE.MeshPhysicalMaterial({
+      map: felt,
+      bumpMap: feltBump,
+      bumpScale: 0.04,
+      roughness: 0.95,
+      metalness: 0,
+      sheen: 0.4,
+      sheenColor: new THREE.Color(0x2a7048),
+      sheenRoughness: 0.85,
+    });
     const table = new THREE.Mesh(tableGeom, tableMat);
     table.rotation.x = -Math.PI / 2;
     table.receiveShadow = true;
     this.scene.add(table);
 
-    const rimMat = new THREE.MeshStandardMaterial({ color: 0x3b2515, roughness: 0.6 });
-    const addRim = (w, h, d, x, y, z) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), rimMat);
+    // ----- Wooden rim -----
+    const wood = woodTexture();
+    const woodLong = wood.clone();
+    woodLong.repeat.set(3, 0.3);
+    const woodShort = wood.clone();
+    woodShort.repeat.set(2.2, 0.3);
+    const rimMatLong = new THREE.MeshPhysicalMaterial({
+      map: woodLong, bumpMap: bumpFrom(woodLong), bumpScale: 0.05,
+      roughness: 0.55, metalness: 0.05, clearcoat: 0.35, clearcoatRoughness: 0.5,
+    });
+    const rimMatShort = new THREE.MeshPhysicalMaterial({
+      map: woodShort, bumpMap: bumpFrom(woodShort), bumpScale: 0.05,
+      roughness: 0.55, metalness: 0.05, clearcoat: 0.35, clearcoatRoughness: 0.5,
+    });
+    const addRim = (w, h, d, x, y, z, mat) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
       m.position.set(x, y, z);
       m.castShadow = true;
       m.receiveShadow = true;
       this.scene.add(m);
     };
-    addRim(14.6, 0.5, 0.4,  0, 0.25,  5.2);
-    addRim(14.6, 0.5, 0.4,  0, 0.25, -5.2);
-    addRim(0.4, 0.5, 10.8,  7.3, 0.25, 0);
-    addRim(0.4, 0.5, 10.8, -7.3, 0.25, 0);
+    addRim(14.6, 0.5, 0.4,  0, 0.25,  5.2, rimMatLong);
+    addRim(14.6, 0.5, 0.4,  0, 0.25, -5.2, rimMatLong);
+    addRim(0.4, 0.5, 10.8,  7.3, 0.25, 0, rimMatShort);
+    addRim(0.4, 0.5, 10.8, -7.3, 0.25, 0, rimMatShort);
 
     this.dieMeshes = [];
     this.selectionRings = [];

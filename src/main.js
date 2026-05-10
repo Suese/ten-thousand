@@ -2,9 +2,33 @@ import { Scene } from './scene.js';
 import { GameRoom } from './game.js';
 import { HostNet, ClientNet } from './net.js';
 import * as ui from './ui.js';
+import { SoundFX } from './audio.js';
+import { confettiBurst, coinShower, scorePopup, flashScreen, shake, centerOf } from './effects.js';
 
-// ---- Bootstrap scene (always running so it's behind every screen) ----
+// ---- Bootstrap scene + audio ----
 const scene = new Scene(document.getElementById('canvas-root'));
+const sfx = new SoundFX();
+
+// Browsers block audio until a user gesture — wake on first interaction.
+const wakeAudio = () => { sfx.resume(); window.removeEventListener('pointerdown', wakeAudio); window.removeEventListener('keydown', wakeAudio); };
+window.addEventListener('pointerdown', wakeAudio);
+window.addEventListener('keydown', wakeAudio);
+
+const muteBtn = document.getElementById('mute-btn');
+let muted = localStorage.getItem('diceMute') === '1';
+function refreshMuteBtn() { muteBtn.textContent = muted ? '🔇' : '🔊'; sfx.setMuted(muted); }
+refreshMuteBtn();
+muteBtn.addEventListener('click', () => {
+  muted = !muted;
+  try { localStorage.setItem('diceMute', muted ? '1' : '0'); } catch {}
+  refreshMuteBtn();
+  if (!muted) sfx.resume();
+});
+
+// Click sound on any button press for tactile feel
+document.addEventListener('click', (e) => {
+  if (e.target instanceof HTMLButtonElement) sfx.click();
+});
 
 // ---- Module state ----
 let mode = null;            // 'host' | 'client'
@@ -45,12 +69,12 @@ window.addEventListener('click', (e) => {
   if (!currentState) return;
   if (currentState.phase !== 'awaiting_keep') return;
   if (currentState.currentPlayerId !== myId) return;
-  if (e.target.closest('#game-ui') || e.target.closest('.overlay')) return;
+  if (e.target.closest('#game-ui') || e.target.closest('.overlay') || e.target.id === 'mute-btn') return;
   const idx = scene.pickDie(e.clientX, e.clientY);
   if (idx < 0) return;
   if (currentState.diceState[idx]?.locked) return;
-  if (selection.has(idx)) selection.delete(idx);
-  else selection.add(idx);
+  if (selection.has(idx)) { selection.delete(idx); sfx.deselectDie(); }
+  else { selection.add(idx); sfx.selectDie(); }
   redrawSelection();
 });
 
@@ -219,8 +243,51 @@ function applyEvent(event) {
     case 'roll_started':
       selection.clear();
       for (let i = 0; i < 5; i++) scene.setSelected(i, false);
+      sfx.diceShake();
       ui.log('Dice rolling...');
       break;
+    case 'collision':
+      sfx.collide(event.kind, event.intensity);
+      break;
+    case 'score': {
+      const big = event.score >= 500;
+      if (big) sfx.scoreBig(); else sfx.scoreSmall(event.score);
+      const where = centerOf(document.getElementById('action-bar'));
+      scorePopup(`+${event.score}`, where.x, where.y - 60, { big });
+      if (big) confettiBurst(where.x, where.y - 40, 50);
+      else confettiBurst(where.x, where.y - 40, 16);
+      break;
+    }
+    case 'bank': {
+      sfx.bank();
+      const where = centerOf(document.getElementById('action-bar'));
+      scorePopup(`BANKED +${event.banked}`, where.x, where.y - 40, { bank: true });
+      coinShower(where.x, where.y - 30, Math.min(60, 15 + Math.floor(event.banked / 100)));
+      flashScreen('#7cf3a0', 0.18);
+      break;
+    }
+    case 'bust': {
+      sfx.bust();
+      const banner = document.getElementById('turn-banner');
+      banner?.classList.add('bust');
+      setTimeout(() => banner?.classList.remove('bust'), 1200);
+      shake(document.getElementById('canvas-root'), 8, 500);
+      flashScreen('#ff4d68', 0.3);
+      const where = centerOf(banner);
+      scorePopup(`BUST! −${event.lost}`, where.x, where.y + 60, { bust: true });
+      break;
+    }
+    case 'hot_dice': {
+      sfx.hotDice();
+      const banner = document.getElementById('turn-banner');
+      banner?.classList.add('hot');
+      setTimeout(() => banner?.classList.remove('hot'), 2400);
+      flashScreen('#ffd400', 0.3);
+      const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+      confettiBurst(cx, cy, 80);
+      scorePopup('🔥 HOT DICE 🔥', cx, cy - 80, { big: true });
+      break;
+    }
     case 'transforms':
       for (let i = 0; i < event.t.length; i++) {
         const t = event.t[i];
@@ -251,9 +318,18 @@ function applyEvent(event) {
     case 'log':
       ui.log(event.text, event.kind || '');
       break;
-    case 'game_over':
-      // handled via state change
+    case 'game_over': {
+      sfx.win();
+      const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+      for (let i = 0; i < 6; i++) {
+        setTimeout(() => {
+          confettiBurst(cx + (Math.random() - 0.5) * 400, cy + (Math.random() - 0.5) * 200, 50);
+          coinShower(cx + (Math.random() - 0.5) * 400, cy, 20);
+        }, i * 350);
+      }
+      flashScreen('#ffd400', 0.45);
       break;
+    }
   }
 }
 

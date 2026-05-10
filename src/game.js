@@ -19,6 +19,15 @@ export class GameRoom {
     this.onEvent = onEvent;
 
     this.physics = new DicePhysics();
+    this.physics.onCollision = (info) => {
+      // Forward to clients (and the host's own audio handler) as an event.
+      // Throttled lightly to avoid network spam during heavy bouncing.
+      const now = performance.now();
+      if (!this._lastCollideEv) this._lastCollideEv = 0;
+      if (now - this._lastCollideEv < 25) return;
+      this._lastCollideEv = now;
+      this.emitEvent({ type: 'collision', kind: info.kind, intensity: info.intensity });
+    };
     this.players = [];           // [{id, name}]
     this.totalScores = {};       // id -> total banked
     this.phase = 'lobby';
@@ -211,6 +220,7 @@ export class GameRoom {
       this.diceState = freshDice();
       for (let i = 0; i < 5; i++) active.push(i);
       lockedTransforms.length = 0;
+      this.emitEvent({ type: 'hot_dice', playerId: this.order[this.currentIdx] });
       this.emitEvent({ type: 'log', text: 'Hot dice — rerolling all five!' });
     }
     this.phase = 'rolling';
@@ -284,7 +294,9 @@ export class GameRoom {
     if (!rollHasScore(activeValues)) {
       this.phase = 'busted';
       const player = this.order[this.currentIdx];
-      this.emitEvent({ type: 'log', text: `${this.nameOf(player)} busted! Lost ${this.turnPoints}.`, kind: 'bust' });
+      const lost = this.turnPoints;
+      this.emitEvent({ type: 'bust', playerId: player, lost });
+      this.emitEvent({ type: 'log', text: `${this.nameOf(player)} busted! Lost ${lost}.`, kind: 'bust' });
       this.turnPoints = 0;
       this.emitState();
       setTimeout(() => this.endTurn(), 1500);
@@ -316,12 +328,15 @@ export class GameRoom {
     // Apply: lock kept indices, add to turn points
     for (const i of indexSet) this.diceState[i].locked = true;
     this.turnPoints += evalRes.score;
+    this.emitEvent({ type: 'score', playerId: byId, score: evalRes.score, kept: keepValues, turnPoints: this.turnPoints });
     this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} keeps ${formatKept(keepValues)} for +${evalRes.score}.` });
 
     if (action === 'bank') {
-      const total = (this.totalScores[byId] || 0) + this.turnPoints;
+      const banked = this.turnPoints;
+      const total = (this.totalScores[byId] || 0) + banked;
       this.totalScores[byId] = total;
-      this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${this.turnPoints}. Total ${total}.`, kind: 'bank' });
+      this.emitEvent({ type: 'bank', playerId: byId, banked, total });
+      this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${banked}. Total ${total}.`, kind: 'bank' });
       this.checkWinAndEndTurn(byId);
     } else if (action === 'reroll') {
       this.beginRoll();
