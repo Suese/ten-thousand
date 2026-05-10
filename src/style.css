@@ -201,6 +201,42 @@ button.primary:hover:not(:disabled) {
   word-break: break-all;
 }
 
+/* Share row — Discord / Messenger / Copy Link buttons */
+.share-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.share-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 13px;
+  color: #fff;
+  transition: transform 0.05s, filter 0.15s, box-shadow 0.2s;
+}
+.share-btn:hover { transform: translateY(-1px); filter: brightness(1.1); }
+.share-btn:active { transform: translateY(0); }
+.share-btn.discord {
+  background: linear-gradient(180deg, #6f7dfa, #5865F2);
+  border-color: #7884ff;
+  box-shadow: 0 0 12px rgba(88, 101, 242, 0.45);
+}
+.share-btn.messenger {
+  background: linear-gradient(180deg, #44bec7 0%, #0084ff 100%);
+  border-color: #44bec7;
+  box-shadow: 0 0 12px rgba(0, 132, 255, 0.45);
+}
+.share-btn.copy {
+  background: linear-gradient(180deg, #ffd966, #ff9b3d);
+  border-color: #ffe07a;
+  color: #20140a;
+  box-shadow: 0 0 12px rgba(255, 200, 60, 0.45);
+}
+
 #player-list {
   list-style: none;
   padding: 0;

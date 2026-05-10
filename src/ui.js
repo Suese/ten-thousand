@@ -15,6 +15,9 @@ const els = {
   shopGrid: () => $('shop-grid'),
   shopBalance: () => $('shop-balance'),
   inventory: () => $('inventory'),
+  shareDiscord: () => $('share-discord'),
+  shareMessenger: () => $('share-messenger'),
+  shareCopy: () => $('share-copy'),
   nameInput: () => $('name-input'),
   joinCode: () => $('join-code'),
   hostBtn: () => $('host-btn'),
@@ -116,17 +119,45 @@ export function renderWaitingRoom({ players, hostId, myId, roomCode, isHost }) {
   els.startBtn().disabled = players.length < 1;
 }
 
+function currentRoomLink() {
+  const raw = (els.roomCode().textContent || '').trim();
+  if (!raw) return '';
+  return raw.includes('://') ? raw : buildRoomUrl(raw);
+}
+
+function flashButton(btn, msg, ms = 1500) {
+  const original = btn.textContent;
+  btn.textContent = msg;
+  setTimeout(() => { btn.textContent = original; }, ms);
+}
+
 export function bindWaiting({ onCopy, onStart }) {
-  els.copyCode().addEventListener('click', () => {
-    const raw = (els.roomCode().textContent || '').trim();
-    // If the element somehow contains a bare peer id, normalize to a full URL.
-    const link = raw && !raw.includes('://') ? buildRoomUrl(raw) : raw;
+  // Copy Link
+  els.shareCopy().addEventListener('click', () => {
+    const link = currentRoomLink();
     if (!link) return;
     navigator.clipboard?.writeText(link).catch(() => {});
-    els.copyCode().textContent = 'Copied!';
-    setTimeout(() => { els.copyCode().textContent = 'Copy link'; }, 1200);
+    flashButton(els.shareCopy(), '✅ Copied!');
     onCopy?.();
   });
+  // Discord — copy + open Discord. There's no public sharer URL, so the link is
+  // copied and Discord opens in a new tab so the user can paste in any channel/DM.
+  els.shareDiscord().addEventListener('click', () => {
+    const link = currentRoomLink();
+    if (!link) return;
+    navigator.clipboard?.writeText(link).catch(() => {});
+    flashButton(els.shareDiscord(), '✅ Copied — paste!');
+    window.open('https://discord.com/channels/@me', '_blank', 'noopener,noreferrer');
+  });
+  // Messenger — same approach: copy + open messenger.com.
+  els.shareMessenger().addEventListener('click', () => {
+    const link = currentRoomLink();
+    if (!link) return;
+    navigator.clipboard?.writeText(link).catch(() => {});
+    flashButton(els.shareMessenger(), '✅ Copied — paste!');
+    window.open('https://www.messenger.com/', '_blank', 'noopener,noreferrer');
+  });
+
   els.startBtn().addEventListener('click', onStart);
 }
 
