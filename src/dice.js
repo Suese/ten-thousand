@@ -235,21 +235,16 @@ function makeDieMaterials(scheme) {
         sheen: 0.1, sheenColor: new THREE.Color(0xffffff),
       });
     }
-    // Glassy red — the pip texture sits on the surface; transmission lets
-    // light pass through with a slight cherry-red tint.
+    // "Glassy" red — no transmission (huge perf cost). Faked via deep clearcoat,
+    // very low roughness, and strong env-map reflections from the casino IBL.
     return new THREE.MeshPhysicalMaterial({
       map: pipTexture(v, scheme),
-      roughness: 0.06,
+      color: new THREE.Color('#ffffff'),     // let the texture supply color
+      roughness: 0.08,
       metalness: 0.0,
-      clearcoat: 0.85,
+      clearcoat: 1.0,
       clearcoatRoughness: 0.05,
-      transmission: 0.55,
-      thickness: 0.6,
-      ior: 1.5,
-      attenuationColor: new THREE.Color('#a8132a'),
-      attenuationDistance: 1.4,
-      transparent: true,
-      side: THREE.DoubleSide,
+      reflectivity: 0.6,
       sheen: 0.15,
       sheenColor: new THREE.Color(0xffffff),
     });
@@ -264,19 +259,15 @@ function makeDieMaterials(scheme) {
         emissiveIntensity: 0.35,
       })
     : new THREE.MeshPhysicalMaterial({
-        // Cherry red glass body for the chamfered edges.
+        // Cherry-red polished plastic for the chamfered edges. Solid (no
+        // transmission) but reads as glassy because of the deep clearcoat
+        // and IBL reflections off the env map.
         color: new THREE.Color('#d8243f'),
-        roughness: 0.04,
+        roughness: 0.06,
         metalness: 0.0,
-        clearcoat: 0.95,
+        clearcoat: 1.0,
         clearcoatRoughness: 0.03,
-        transmission: 0.85,
-        thickness: 0.8,
-        ior: 1.5,
-        attenuationColor: new THREE.Color('#a8132a'),
-        attenuationDistance: 1.2,
-        transparent: true,
-        side: THREE.DoubleSide,
+        reflectivity: 0.7,
       });
 
   return [...faceMats, bodyMat];

@@ -9,7 +9,7 @@ export const ITEMS = {
   weighted: {
     name: 'Weighted Die',
     icon: '🎲',
-    cost: 200,
+    cost: 50,
     desc: 'Click an un-locked die to weight it toward 1 (or pick at random pre-roll). The bias only catches if the die has enough momentum.',
     when: 'anytime',
     needsAim: 'die',
