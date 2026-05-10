@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>10,000 — Dice</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="canvas-root"></div>
+
+    <div id="lobby" class="overlay">
+      <div class="panel">
+        <h1>10,000</h1>
+        <p class="tag">A multiplayer dice game</p>
+
+        <label>
+          Your name
+          <input id="name-input" type="text" maxlength="16" placeholder="Player" />
+        </label>
+
+        <div class="row">
+          <button id="host-btn" class="primary">Host a game</button>
+        </div>
+
+        <div class="divider"><span>or</span></div>
+
+        <label>
+          Room code
+          <input id="join-code" type="text" maxlength="40" placeholder="abc-123-xyz" />
+        </label>
+        <div class="row">
+          <button id="join-btn">Join game</button>
+        </div>
+
+        <div id="lobby-status" class="status"></div>
+      </div>
+    </div>
+
+    <div id="waiting" class="overlay hidden">
+      <div class="panel">
+        <h2>Waiting room</h2>
+        <p>Share this room code with friends:</p>
+        <div class="code-box">
+          <code id="room-code"></code>
+          <button id="copy-code">Copy</button>
+        </div>
+        <h3>Players</h3>
+        <ul id="player-list"></ul>
+        <div class="row" id="host-controls">
+          <button id="start-btn" class="primary">Start game</button>
+        </div>
+        <p class="tag" id="waiting-tag"></p>
+      </div>
+    </div>
+
+    <div id="game-ui" class="hidden">
+      <div id="scoreboard"></div>
+      <div id="turn-banner"></div>
+      <div id="action-bar">
+        <div id="selection-info"></div>
+        <div class="actions">
+          <button id="roll-btn">Roll</button>
+          <button id="keep-btn">Keep selected &amp; roll again</button>
+          <button id="bank-btn">Bank points</button>
+        </div>
+      </div>
+      <div id="log"></div>
+    </div>
+
+    <div id="end-screen" class="overlay hidden">
+      <div class="panel">
+        <h1 id="end-title">Game over</h1>
+        <ul id="final-scores"></ul>
+        <div class="row">
+          <button id="play-again-btn" class="primary">Back to lobby</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
