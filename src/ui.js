@@ -131,8 +131,22 @@ function flashButton(btn, msg, ms = 1500) {
   setTimeout(() => { btn.textContent = original; }, ms);
 }
 
+const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+async function tryWebShare(link) {
+  if (!navigator.share) return false;
+  try {
+    await navigator.share({ url: link, title: '10,000 Dice', text: 'Join my dice game!' });
+    return true;
+  } catch (err) {
+    // AbortError = user cancelled the share; treat as success-ish (don't fall back to copy)
+    if (err?.name === 'AbortError') return true;
+    return false;
+  }
+}
+
 export function bindWaiting({ onCopy, onStart }) {
-  // Copy Link
+  // Copy Link — always copies the room URL to clipboard.
   els.shareCopy().addEventListener('click', () => {
     const link = currentRoomLink();
     if (!link) return;
@@ -140,20 +154,39 @@ export function bindWaiting({ onCopy, onStart }) {
     flashButton(els.shareCopy(), '✅ Copied!');
     onCopy?.();
   });
-  // Discord — copy + open Discord. There's no public sharer URL, so the link is
-  // copied and Discord opens in a new tab so the user can paste in any channel/DM.
-  els.shareDiscord().addEventListener('click', () => {
+
+  // Discord — no public sharer URL exists. The most useful chain is:
+  //   1. Web Share API (mobile + Safari): native share sheet includes Discord if installed.
+  //   2. Otherwise: copy + open Discord so the user pastes in their channel of choice.
+  els.shareDiscord().addEventListener('click', async () => {
     const link = currentRoomLink();
     if (!link) return;
     navigator.clipboard?.writeText(link).catch(() => {});
+    if (await tryWebShare(link)) {
+      flashButton(els.shareDiscord(), '✅ Shared!');
+      return;
+    }
     flashButton(els.shareDiscord(), '✅ Copied — paste!');
     window.open('https://discord.com/channels/@me', '_blank', 'noopener,noreferrer');
   });
-  // Messenger — same approach: copy + open messenger.com.
-  els.shareMessenger().addEventListener('click', () => {
+
+  // Messenger — proper chain:
+  //   1. Mobile: fb-messenger://share/?link=URL deep link (official Messenger app share).
+  //   2. Web Share API (Safari/Edge desktop, mobile fallback).
+  //   3. Otherwise: copy + open messenger.com so the user pastes manually.
+  els.shareMessenger().addEventListener('click', async () => {
     const link = currentRoomLink();
     if (!link) return;
     navigator.clipboard?.writeText(link).catch(() => {});
+    if (isMobile()) {
+      flashButton(els.shareMessenger(), '✅ Opening Messenger…');
+      window.location.href = `fb-messenger://share/?link=${encodeURIComponent(link)}`;
+      return;
+    }
+    if (await tryWebShare(link)) {
+      flashButton(els.shareMessenger(), '✅ Shared!');
+      return;
+    }
     flashButton(els.shareMessenger(), '✅ Copied — paste!');
     window.open('https://www.messenger.com/', '_blank', 'noopener,noreferrer');
   });

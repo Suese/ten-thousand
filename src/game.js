@@ -148,8 +148,14 @@ export class GameRoom {
       case 'weighted': {
         // Player chose a specific die OR (pre-roll) is letting the host pick one randomly.
         let idx = (params && typeof params.dieIndex === 'number') ? params.dieIndex : null;
-        if (idx == null) idx = this.pickRandomEligibleDieIndex();
-        if (idx == null || this.diceState[idx]?.locked || this.activeEffects.destroyed.has(idx) || this.activeEffects.hiddenNow.has(idx)) {
+        // Random pick — exclude dice that are already weighted so spamming this
+        // item N times weights N distinct dice (up to 5).
+        if (idx == null) idx = this.pickRandomEligibleDieIndex(this.activeEffects.weightedDice);
+        if (idx == null
+            || this.diceState[idx]?.locked
+            || this.activeEffects.destroyed.has(idx)
+            || this.activeEffects.hiddenNow.has(idx)
+            || this.activeEffects.weightedDice.has(idx)) {
           inv[itemId] = (inv[itemId] || 0) + 1;
           this.emitEvent({ type: 'log', text: 'No eligible die to weight.', kind: 'reject' });
           return;
@@ -241,12 +247,13 @@ export class GameRoom {
     this.emitState();
   }
 
-  pickRandomEligibleDieIndex() {
+  pickRandomEligibleDieIndex(excludeSet = null) {
     const candidates = [];
     for (let i = 0; i < this.diceState.length; i++) {
       if (this.diceState[i].locked) continue;
       if (this.activeEffects.destroyed.has(i)) continue;
       if (this.activeEffects.hiddenNow.has(i)) continue;
+      if (excludeSet && excludeSet.has(i)) continue;
       candidates.push(i);
     }
     if (!candidates.length) return null;
@@ -549,12 +556,6 @@ export class GameRoom {
       const idx = this._flickIndex;
       this._flickIndex = null;
       if (!this.diceState[idx].locked) this.diceState[idx].value = values[idx];
-      // Weighted-die guarantee: if the flicked die is weighted, snap to 1.
-      if (this.activeEffects.weightedDice.has(idx) && !this.diceState[idx].locked && this.diceState[idx].value !== 1) {
-        this.diceState[idx].value = 1;
-        this.physics.setDieFaceUp(idx, 1);
-      }
-      this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
       this.emitEvent({
         type: 'roll_settled',
         values: this.diceState.map(d => d.value),
@@ -573,18 +574,8 @@ export class GameRoom {
       }
     }
 
-    // Weighted die guarantee: physics biased the die toward 1 during the roll
-    // (so the visual is natural), but if it didn't fully align we snap it to a
-    // 1-face here so the player can always count on the result.
-    for (const idx of this.activeEffects.weightedDice) {
-      if (this.diceState[idx].locked) continue;
-      if (this.activeEffects.destroyed.has(idx)) continue;
-      if (hidden.includes(idx)) continue;
-      if (this.diceState[idx].value !== 1) {
-        this.diceState[idx].value = 1;
-        this.physics.setDieFaceUp(idx, 1);
-      }
-    }
+    // (Weighted dice are biased toward 1 by continuous torque in the physics tick;
+    // beyond that they behave exactly like normal dice — no snapping, no overrides.)
 
     // Restore portable-hole dice after their skipped roll.
     if (hidden.length) {
