@@ -53,6 +53,10 @@ export class DicePhysics {
     this.sawBladeIndex = -1;
     this._sawBladeTimer = 0;
 
+    // Weighted dice — set of indices with continuous torque bias toward 1-up.
+    this.weightedDice = new Set();
+    this.weightedStrength = 1.6;
+
     // Collision callback — set externally. Fires for significant impacts only.
     this.onCollision = null;
     const dieBodySet = new Set(this.bodies);
@@ -178,7 +182,7 @@ export class DicePhysics {
       );
     }
     b.velocity.set(vx, vy, vz);
-    this.activeIndices = [dieIndex];
+    if (!this.activeIndices.includes(dieIndex)) this.activeIndices.push(dieIndex);
   }
 
   startSawBlade(dieIndex) {
@@ -189,8 +193,7 @@ export class DicePhysics {
     // Massive spin, modest hop to start.
     b.velocity.set((Math.random() - 0.5) * 6, 2 + Math.random() * 2, (Math.random() - 0.5) * 6);
     b.angularVelocity.set(0, 0, 0);
-    // The activeIndices set is the saw die (so settle ignores other dice)
-    this.activeIndices = [dieIndex];
+    if (!this.activeIndices.includes(dieIndex)) this.activeIndices.push(dieIndex);
   }
 
   tickSawBlade(dieIndex, dt) {
@@ -224,7 +227,38 @@ export class DicePhysics {
     this.activeIndices = this.bodies.map((_, i) => i);
   }
 
-  // Force a die to show a specific face value while at rest (used by Weighted Die).
+  setDieWeightedTowardOne(dieIndex, on) {
+    if (on) this.weightedDice.add(dieIndex);
+    else this.weightedDice.delete(dieIndex);
+  }
+
+  clearWeightedDice() {
+    this.weightedDice.clear();
+  }
+
+  // Each step, nudge every weighted die's local +X axis (the "1" face) toward world up.
+  // The torque only actually moves the die while it has angular momentum to rotate
+  // through; a settled (sleeping) die is left alone. Strong spin overpowers the bias —
+  // if the die slows down before alignment finishes, it can land on something else.
+  applyWeightedTorques() {
+    if (!this.weightedDice.size) return;
+    const up = new CANNON.Vec3(0, 1, 0);
+    const localOneAxis = new CANNON.Vec3(1, 0, 0);
+    const worldOneAxis = new CANNON.Vec3();
+    for (const idx of this.weightedDice) {
+      const b = this.bodies[idx];
+      if (b.sleepState === CANNON.Body.SLEEPING) continue;
+      // Where the "1" face currently points in world space.
+      b.quaternion.vmult(localOneAxis, worldOneAxis);
+      // Cross product gives the rotation axis to align worldOneAxis -> up.
+      // Magnitude of the cross is sin(angle), so already attenuates near alignment.
+      const torque = worldOneAxis.cross(up);
+      torque.scale(this.weightedStrength, torque);
+      b.applyTorque(torque);
+    }
+  }
+
+  // Force a die to show a specific face value while at rest.
   setDieFaceUp(dieIndex, value) {
     const b = this.bodies[dieIndex];
     const q = quaternionForFaceUp(value);

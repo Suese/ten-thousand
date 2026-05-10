@@ -10,8 +10,9 @@ export const ITEMS = {
     name: 'Weighted Die',
     icon: '🎲',
     cost: 200,
-    desc: 'After your next roll, one un-locked die is forced to 1.',
-    when: 'own_pre_roll',
+    desc: 'Click any un-locked die to weight it toward 1. The bias only catches if the die has enough momentum.',
+    when: 'anytime',
+    needsAim: 'die',
   },
   portable_hole: {
     name: 'Portable Hole',
@@ -47,8 +48,8 @@ export const ITEMS = {
     name: 'Saw Blade',
     icon: '🪚',
     cost: 2000,
-    desc: 'A random opponent die becomes a chainsaw of doom. Can miss. Destroys the saw die.',
-    when: 'opp_awaiting_keep',
+    desc: 'A random un-locked die becomes a chainsaw of doom. Can miss. Destroys the saw die.',
+    when: 'anytime',
   },
 };
 
@@ -57,7 +58,7 @@ export function isUsable(item, { phase, isMyTurn }) {
     case 'own_pre_roll':      return phase === 'awaiting_roll' && isMyTurn;
     case 'opp_pre_roll':      return phase === 'awaiting_roll' && !isMyTurn;
     case 'opp_awaiting_keep': return phase === 'awaiting_keep' && !isMyTurn;
-    case 'anytime':           return phase !== 'lobby' && phase !== 'game_over' && phase !== 'opening_roll';
+    case 'anytime':           return phase === 'awaiting_roll' || phase === 'awaiting_keep' || phase === 'rolling' || phase === 'busted';
   }
   return false;
 }

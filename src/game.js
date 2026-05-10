@@ -59,10 +59,9 @@ export class GameRoom {
     this.inventories = {};       // playerId -> { itemId: count }
     this.selection = [];         // dice indices the active player has highlighted
     this.activeEffects = {
-      weighted: new Set(),       // player ids whose next roll forces a 1
       portableHole: {},          // playerId -> [dieIndex...] absent for next roll
       destroyed: new Set(),      // dice indices destroyed by saw blade for this turn
-      weightedDice: new Set(),   // dice indices forced to 1 by weighted die this turn
+      weightedDice: new Set(),   // dice indices being torque-biased toward 1 (this turn)
       hiddenNow: new Set(),      // dice currently sucked into a portable hole, restored next roll
       dookieZones: [],           // [{x, z, r, untilTs}]
       iceRinkUntilTs: 0,         // timestamp; while > now, friction lowered
@@ -145,9 +144,20 @@ export class GameRoom {
     let extra = {};
 
     switch (itemId) {
-      case 'weighted':
-        this.activeEffects.weighted.add(fromId);
+      case 'weighted': {
+        // Player chose a specific die. Add to physics torque-bias set;
+        // the bias only takes effect while the die is awake (i.e., has momentum).
+        const idx = (params && typeof params.dieIndex === 'number') ? params.dieIndex : null;
+        if (idx == null || this.diceState[idx]?.locked || this.activeEffects.destroyed.has(idx) || this.activeEffects.hiddenNow.has(idx)) {
+          inv[itemId] = (inv[itemId] || 0) + 1;
+          this.emitEvent({ type: 'log', text: 'Invalid weighted target.', kind: 'reject' });
+          return;
+        }
+        this.activeEffects.weightedDice.add(idx);
+        this.physics.setDieWeightedTowardOne(idx, true);
+        extra = { dieIndex: idx };
         break;
+      }
       case 'portable_hole': {
         const idx = this.pickRandomEligibleDieIndex();
         if (idx == null) {
@@ -390,6 +400,7 @@ export class GameRoom {
     // Clear turn-scoped item effects.
     this.activeEffects.destroyed.clear();
     this.activeEffects.weightedDice.clear();
+    this.physics.clearWeightedDice();
     this.activeEffects.hiddenNow.clear();
     this.activeEffects.dookieZones = [];
     this.physics.setDookieZones([]);
@@ -473,6 +484,10 @@ export class GameRoom {
       // Apply dookie viscous drag to dice within a sticky zone.
       this.physics.applyDookieDrag();
 
+      // Apply continuous torque to weighted dice (bias toward 1-up). The torque
+      // only meaningfully affects dice that are awake / have momentum.
+      this.physics.applyWeightedTorques();
+
       this.physics.step(dt);
 
       this.broadcastTimer += dt;
@@ -547,25 +562,7 @@ export class GameRoom {
       }
     }
 
-    // Weighted die: if no 1 in the just-rolled values, force one un-locked die to 1.
-    if (this.activeEffects.weighted.has(playerId)) {
-      this.activeEffects.weighted.delete(playerId);
-      const rolledIdxs = [];
-      for (let i = 0; i < this.diceState.length; i++) {
-        if (!this.diceState[i].locked && !hidden.includes(i)) rolledIdxs.push(i);
-      }
-      const has1 = rolledIdxs.some(i => this.diceState[i].value === 1);
-      if (!has1 && rolledIdxs.length) {
-        const target = rolledIdxs[Math.floor(Math.random() * rolledIdxs.length)];
-        this.diceState[target].value = 1;
-        this.physics.setDieFaceUp(target, 1);
-        this.activeEffects.weightedDice.add(target);
-      } else if (has1) {
-        // Mark whichever 1-showing die as the "weighted" one for visual.
-        const idx = rolledIdxs.find(i => this.diceState[i].value === 1);
-        if (idx != null) this.activeEffects.weightedDice.add(idx);
-      }
-    }
+    // (Weighted die is now handled by continuous torque biasing in the physics tick.)
 
     // Restore portable-hole dice after their skipped roll.
     if (hidden.length) {

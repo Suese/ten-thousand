@@ -142,7 +142,11 @@ ui.bindShop({
     if (item?.needsAim === 'point') {
       enterAimMode(itemId, 'point', `${item.icon} Click on the table to throw`);
     } else if (item?.needsAim === 'die') {
-      enterAimMode(itemId, 'die', `${item.icon} Click any un-locked die to flick`);
+      const hint =
+        itemId === 'weighted'
+          ? `${item.icon} Click the die to weight toward 1`
+          : `${item.icon} Click any un-locked die`;
+      enterAimMode(itemId, 'die', hint);
     } else {
       sendAction({ name: 'use_item', itemId });
     }
