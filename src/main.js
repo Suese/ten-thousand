@@ -57,6 +57,7 @@ window.addEventListener('click', (e) => {
 // ---- Host bootstrap ----
 async function startHost() {
   myName = ui.readNameInput();
+  if (!myName) { ui.setLobbyStatus('Enter your name first.'); return; }
   ui.persistName(myName);
   ui.setLobbyStatus('Connecting to peer network...');
 
@@ -94,11 +95,11 @@ async function startHost() {
     const action = msg.action;
     if (!action) return;
     if (action.name === 'join') {
-      gameRoom.addPlayer(fromId, action.name);
-      // Catch the new peer up: state + a transforms snapshot so dice positions
-      // appear instantly if a turn is already in progress.
+      gameRoom.addPlayer(fromId, action.value);
+      // Catch the new peer up: state + a full dice snapshot (pos/quat/velocity)
+      // so they see exactly what everyone else sees, even mid-roll.
       host.sendTo(fromId, { type: 'state', state: gameRoom.snapshot() });
-      host.sendTo(fromId, { type: 'event', event: { type: 'transforms', t: gameRoom.getCurrentTransforms() } });
+      host.sendTo(fromId, { type: 'event', event: { type: 'dice_snapshot', dice: gameRoom.getFullDiceSnapshot() } });
     } else {
       gameRoom.handleAction(fromId, action);
     }
@@ -130,6 +131,7 @@ async function startClient() {
   const code = extractRoomCode(ui.readJoinCode());
   if (!code) { ui.setLobbyStatus('Enter a room link or code first.'); return; }
   myName = ui.readNameInput();
+  if (!myName) { ui.setLobbyStatus('Enter your name first.'); return; }
   ui.persistName(myName);
   ui.setLobbyStatus('Connecting...');
 
@@ -159,7 +161,7 @@ async function startClient() {
     ui.setLobbyStatus('Connection failed: ' + (err?.message || err));
     return;
   }
-  client.send({ type: 'action', action: { name: 'join', name: myName } });
+  client.send({ type: 'action', action: { name: 'join', value: myName } });
 
   mode = 'client';
   enterWaitingRoom(code);
@@ -225,6 +227,17 @@ function applyEvent(event) {
         scene.setDieTransform(i, [t[0], t[1], t[2]], [t[3], t[4], t[5], t[6]], true);
       }
       // Visibility may have flipped; re-apply lock rings from the latest state.
+      if (currentState && currentState.diceState) {
+        for (let i = 0; i < currentState.diceState.length; i++) {
+          scene.setLocked(i, !!currentState.diceState[i].locked);
+        }
+      }
+      break;
+    case 'dice_snapshot':
+      for (let i = 0; i < event.dice.length; i++) {
+        const d = event.dice[i];
+        scene.setDieTransform(i, d.pos, d.quat, true);
+      }
       if (currentState && currentState.diceState) {
         for (let i = 0; i < currentState.diceState.length; i++) {
           scene.setLocked(i, !!currentState.diceState[i].locked);

@@ -126,6 +126,15 @@ export class DicePhysics {
     ]);
   }
 
+  getFullSnapshot() {
+    return this.bodies.map(b => ({
+      pos: [b.position.x, b.position.y, b.position.z],
+      quat: [b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w],
+      vel: [b.velocity.x, b.velocity.y, b.velocity.z],
+      angVel: [b.angularVelocity.x, b.angularVelocity.y, b.angularVelocity.z],
+    }));
+  }
+
   getValues() {
     return this.bodies.map(b => readDieValue(b.quaternion));
   }

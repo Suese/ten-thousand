@@ -78,6 +78,10 @@ export class GameRoom {
     return this.physics.getTransforms();
   }
 
+  getFullDiceSnapshot() {
+    return this.physics.getFullSnapshot();
+  }
+
   setName(id, name) {
     const p = this.players.find(p => p.id === id);
     if (p && name) {

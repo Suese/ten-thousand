@@ -41,7 +41,7 @@ export function setLobbyStatus(text) {
 }
 
 export function readNameInput() {
-  return (els.nameInput().value || 'Player').trim().slice(0, 16) || 'Player';
+  return (els.nameInput().value || '').trim().slice(0, 16);
 }
 
 export function readJoinCode() {
@@ -63,10 +63,14 @@ export function bindLobby({ onHost, onJoin }) {
   const saved = localStorage.getItem('diceName');
   if (saved) els.nameInput().value = saved;
 
-  // If URL has ?room= , prefill
+  // If URL has ?room= , prefill the code and focus the name field so the
+  // arriving friend's first action is to type their name.
   const url = new URL(window.location.href);
   const room = url.searchParams.get('room');
-  if (room) els.joinCode().value = room;
+  if (room) {
+    els.joinCode().value = room;
+    setTimeout(() => els.nameInput().focus(), 0);
+  }
 }
 
 export function persistName(name) {
@@ -106,10 +110,13 @@ export function renderWaitingRoom({ players, hostId, myId, roomCode, isHost }) {
 
 export function bindWaiting({ onCopy, onStart }) {
   els.copyCode().addEventListener('click', () => {
-    const code = els.roomCode().textContent;
-    navigator.clipboard?.writeText(code).catch(() => {});
+    const raw = (els.roomCode().textContent || '').trim();
+    // If the element somehow contains a bare peer id, normalize to a full URL.
+    const link = raw && !raw.includes('://') ? buildRoomUrl(raw) : raw;
+    if (!link) return;
+    navigator.clipboard?.writeText(link).catch(() => {});
     els.copyCode().textContent = 'Copied!';
-    setTimeout(() => { els.copyCode().textContent = 'Copy'; }, 1200);
+    setTimeout(() => { els.copyCode().textContent = 'Copy link'; }, 1200);
     onCopy?.();
   });
   els.startBtn().addEventListener('click', onStart);
