@@ -219,13 +219,10 @@ button.primary:hover:not(:disabled) {
   position: absolute;
   top: 16px;
   left: 16px;
-  background: rgba(15, 19, 28, 0.85);
-  backdrop-filter: blur(8px);
-  border: 1px solid #262c3a;
-  border-radius: 10px;
-  padding: 12px 14px;
+  padding: 4px 8px;
   pointer-events: auto;
   min-width: 220px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.9);
 }
 #scoreboard h3 {
   margin: 0 0 8px;
@@ -239,9 +236,7 @@ button.primary:hover:not(:disabled) {
   justify-content: space-between;
   padding: 4px 0;
   font-size: 14px;
-  border-bottom: 1px solid #1f2533;
 }
-.score-row:last-child { border-bottom: none; }
 .score-row.active {
   color: #ffe07a;
   font-weight: 700;
@@ -318,16 +313,12 @@ button.primary:hover:not(:disabled) {
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(15, 19, 28, 0.92);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 224, 122, 0.3);
-  border-radius: 12px;
   padding: 14px 18px;
   pointer-events: auto;
   min-width: 360px;
   text-align: center;
-  box-shadow: 0 0 26px rgba(255, 200, 60, 0.15);
 }
+#selection-info { text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85); }
 #bank-btn {
   background: linear-gradient(180deg, #66e090 0%, #2bbd5e 100%);
   border-color: #7cf3a0;
@@ -382,20 +373,15 @@ button.primary:hover:not(:disabled) {
   width: 280px;
   max-height: 220px;
   overflow-y: auto;
-  background: rgba(15, 19, 28, 0.85);
-  backdrop-filter: blur(8px);
-  border: 1px solid #262c3a;
-  border-radius: 10px;
-  padding: 10px 12px;
+  padding: 4px 8px;
   font-size: 12px;
   pointer-events: auto;
-  color: #b8c1d4;
+  color: #d4dbe7;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.8);
 }
 #log .entry {
   padding: 3px 0;
-  border-bottom: 1px solid #1f2533;
 }
-#log .entry:last-child { border-bottom: none; }
 #log .entry.you { color: #ffe07a; }
 #log .entry.bust { color: #ff7c8a; }
 #log .entry.bank { color: #7cf3a0; }
@@ -541,3 +527,164 @@ button.primary:hover:not(:disabled) {
   cursor: pointer;
   pointer-events: auto;
 }
+
+/* Shop button — top right (left of mute) */
+#shop-btn {
+  position: fixed;
+  top: 16px;
+  right: 64px;
+  z-index: 20;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 19px;
+  background: linear-gradient(180deg, #ffd966 0%, #ff9b3d 100%);
+  border: 1px solid #ffe07a;
+  color: #20140a;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 0 16px rgba(255, 200, 60, 0.4);
+}
+#shop-btn:hover {
+  background: linear-gradient(180deg, #fff0a0 0%, #ffaa55 100%);
+  box-shadow: 0 0 22px rgba(255, 220, 100, 0.6);
+}
+#shop-btn.hidden { display: none; }
+
+/* Shop modal */
+.shop-panel {
+  width: min(720px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.shop-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+.shop-header h2 {
+  margin: 0;
+  flex: 0 0 auto;
+}
+.shop-balance {
+  flex: 1;
+  text-align: right;
+  font-size: 14px;
+  color: #b8c1d4;
+}
+.shop-balance span {
+  color: #ffe07a;
+  font-weight: 700;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+#shop-close {
+  background: transparent;
+  border: 1px solid #2a3142;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 14px;
+  cursor: pointer;
+}
+#shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.shop-card {
+  background: #0e1219;
+  border: 1px solid #2a3142;
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.15s, transform 0.05s;
+}
+.shop-card:hover {
+  border-color: #ffe07a;
+}
+.shop-card .icon {
+  font-size: 32px;
+  line-height: 1;
+}
+.shop-card .name {
+  font-weight: 700;
+  font-size: 15px;
+}
+.shop-card .desc {
+  font-size: 12px;
+  color: #b8c1d4;
+  line-height: 1.4;
+  flex: 1;
+}
+.shop-card .footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+.shop-card .cost {
+  color: #ffe07a;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.shop-card .own {
+  font-size: 11px;
+  color: #7cf3a0;
+}
+.shop-card button {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+/* Inventory tray — bottom-center, just above the action bar */
+#inventory {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 6;
+  pointer-events: auto;
+}
+#inventory.hidden { display: none; }
+.inv-item {
+  background: rgba(15, 19, 28, 0.92);
+  border: 1px solid #2a3142;
+  border-radius: 10px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.05s, opacity 0.15s;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.7);
+}
+.inv-item .ic { font-size: 22px; line-height: 1; }
+.inv-item .ct { font-weight: 700; color: #ffe07a; }
+.inv-item:hover { border-color: #ffe07a; }
+.inv-item.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: #2a3142;
+}
+.inv-item.usable {
+  border-color: #ffe07a;
+  box-shadow: 0 0 12px rgba(255, 200, 60, 0.35);
+  animation: inv-pulse 1.6s ease-in-out infinite alternate;
+}
+@keyframes inv-pulse {
+  0% { box-shadow: 0 0 8px rgba(255, 200, 60, 0.2); }
+  100% { box-shadow: 0 0 18px rgba(255, 200, 60, 0.55); }
+}
+
+/* Visual selection ring colors per player are coordinated with three.js;
+   "remote selection" rings use a different tint so spectators see who's clicking. */

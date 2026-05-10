@@ -40,7 +40,11 @@ export function confettiBurst(x, y, count = 40) {
   }
 }
 
-export function coinShower(x, y, count = 30) {
+// `count` is how many coins to launch; `durationMs` is the spawn window —
+// bigger banks both spawn more coins and stretch the spawn window so the
+// celebration visibly lasts longer.
+export function coinShower(x, y, count = 30, durationMs = null) {
+  const window = durationMs ?? Math.max(600, count * 25);
   for (let i = 0; i < count; i++) {
     setTimeout(() => {
       const el = document.createElement('div');
@@ -53,7 +57,7 @@ export function coinShower(x, y, count = 30) {
       const vx = Math.cos(angle) * speed;
       const vy = Math.sin(angle) * speed;
       spawn(el, vx, vy, 1500, 1.8, (Math.random() - 0.5) * 720);
-    }, i * 25);
+    }, (i / count) * window);
   }
 }
 

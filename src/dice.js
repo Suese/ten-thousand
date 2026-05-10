@@ -182,7 +182,7 @@ function createChamferedDieGeometry(size = 1, chamfer = 0.08) {
     // because rotating +X→+Z (around +Y) goes the opposite direction.
     { q: [[ s, -e,  e], [ s,  e,  e], [ e,  e,  s], [ e, -e,  s]], n: [norm2( 1,  1)[0], 0, norm2( 1,  1)[1]] },
     { q: [[ s,  e, -e], [ s, -e, -e], [ e, -e, -s], [ e,  e, -s]], n: [norm2( 1, -1)[0], 0, norm2( 1, -1)[1]] },
-    { q: [[-e,  e,  s], [-e, -e,  s], [-s, -e,  e], [-s,  e,  e]], n: [norm2(-1,  1)[0], 0, norm2(-1,  1)[1]] },
+    { q: [[-e,  e,  s], [-s,  e,  e], [-s, -e,  e], [-e, -e,  s]], n: [norm2(-1,  1)[0], 0, norm2(-1,  1)[1]] },
     { q: [[-e, -e, -s], [-s, -e, -e], [-s,  e, -e], [-e,  e, -s]], n: [norm2(-1, -1)[0], 0, norm2(-1, -1)[1]] },
   ];
 

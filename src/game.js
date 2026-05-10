@@ -1,7 +1,11 @@
 import { DicePhysics } from './physics.js';
 import { evaluateKeep, rollHasScore } from './rules.js';
+import { ITEMS } from './items.js';
 
 const WIN_SCORE = 10000;
+const DOOKIE_DURATION_MS = 30000;
+const ICE_DURATION_MS = 30000;
+const SAW_BLADE_DURATION_MS = 4000;
 
 // Authoritative game-state machine. Lives only on the host.
 //
@@ -50,6 +54,18 @@ export class GameRoom {
 
     this.broadcastTimer = 0;
     this.streaming = false;
+
+    // ----- Shop / item state -----
+    this.inventories = {};       // playerId -> { itemId: count }
+    this.selection = [];         // dice indices the active player has highlighted
+    this.activeEffects = {
+      weighted: new Set(),       // player ids whose next roll forces a 1
+      portableHole: {},          // playerId -> [dieIndex...] absent for next roll
+      destroyed: new Set(),      // dice indices destroyed by saw blade for this turn
+      dookieZones: [],           // [{x, z, r, untilTs}]
+      iceRinkUntilTs: 0,         // timestamp; while > now, friction lowered
+      sawBlade: null,            // { dieIndex, untilTs } or null
+    };
   }
 
   setHostId(id) { this.hostId = id; }
@@ -57,12 +73,161 @@ export class GameRoom {
   handleAction(fromId, action) {
     if (!action || typeof action !== 'object') return;
     switch (action.name) {
-      case 'set_name':    this.setName(fromId, action.value); break;
-      case 'start_game':  this.startGame(fromId); break;
-      case 'request_roll': this.requestRoll(fromId); break;
-      case 'commit':      this.commit(fromId, action.action, action.indices); break;
-      case 'rematch':     this.rematch(fromId); break;
+      case 'set_name':      this.setName(fromId, action.value); break;
+      case 'start_game':    this.startGame(fromId); break;
+      case 'request_roll':  this.requestRoll(fromId); break;
+      case 'commit':        this.commit(fromId, action.action, action.indices); break;
+      case 'rematch':       this.rematch(fromId); break;
+      case 'set_selection': this.setSelection(fromId, action.indices); break;
+      case 'purchase':      this.purchaseItem(fromId, action.itemId); break;
+      case 'use_item':      this.useItem(fromId, action.itemId, action.params || {}); break;
     }
+  }
+
+  // Active player updates which dice they're highlighting; broadcast to all so spectators see it.
+  setSelection(fromId, indices) {
+    if (this.phase !== 'awaiting_keep') return;
+    if (this.order[this.currentIdx] !== fromId) return;
+    if (!Array.isArray(indices)) return;
+    const filtered = [];
+    for (const i of indices) {
+      if (typeof i !== 'number' || i < 0 || i >= this.diceState.length) continue;
+      if (this.diceState[i].locked) continue;
+      if (!filtered.includes(i)) filtered.push(i);
+    }
+    this.selection = filtered;
+    this.emitState();
+  }
+
+  purchaseItem(fromId, itemId) {
+    const item = ITEMS[itemId];
+    if (!item) return;
+    if (this.phase === 'lobby' || this.phase === 'opening_roll' || this.phase === 'game_over') return;
+    const balance = this.totalScores[fromId] || 0;
+    if (balance < item.cost) {
+      this.emitEvent({ type: 'log', text: `${this.nameOf(fromId)} can't afford ${item.name}.`, kind: 'reject' });
+      return;
+    }
+    this.totalScores[fromId] = balance - item.cost;
+    if (!this.inventories[fromId]) this.inventories[fromId] = {};
+    this.inventories[fromId][itemId] = (this.inventories[fromId][itemId] || 0) + 1;
+    this.emitEvent({ type: 'log', text: `${this.nameOf(fromId)} bought ${item.icon} ${item.name} (-${item.cost}).` });
+    this.emitEvent({ type: 'purchase', playerId: fromId, itemId, cost: item.cost });
+    this.emitState();
+  }
+
+  useItem(fromId, itemId, params) {
+    const item = ITEMS[itemId];
+    if (!item) return;
+    const inv = this.inventories[fromId];
+    if (!inv || !inv[itemId]) return;
+    const isMyTurn = this.order[this.currentIdx] === fromId;
+
+    // Phase gate
+    const okPhase = (
+      (item.when === 'own_pre_roll'      && this.phase === 'awaiting_roll'   && isMyTurn) ||
+      (item.when === 'opp_pre_roll'      && this.phase === 'awaiting_roll'   && !isMyTurn) ||
+      (item.when === 'opp_awaiting_keep' && this.phase === 'awaiting_keep'   && !isMyTurn) ||
+      (item.when === 'anytime'           && this.phase !== 'lobby' && this.phase !== 'opening_roll' && this.phase !== 'game_over')
+    );
+    if (!okPhase) {
+      this.emitEvent({ type: 'log', text: `Can't use ${item.name} right now.`, kind: 'reject' });
+      return;
+    }
+
+    // Consume one
+    inv[itemId]--;
+    if (inv[itemId] <= 0) delete inv[itemId];
+
+    const targetPlayerId = this.order[this.currentIdx];
+    let extra = {};
+
+    switch (itemId) {
+      case 'weighted':
+        this.activeEffects.weighted.add(fromId);
+        break;
+      case 'portable_hole': {
+        const idx = this.pickRandomEligibleDieIndex();
+        if (idx == null) {
+          inv[itemId] = (inv[itemId] || 0) + 1; // refund
+          this.emitEvent({ type: 'log', text: 'No eligible dice for the Portable Hole.', kind: 'reject' });
+          return;
+        }
+        if (!this.activeEffects.portableHole[targetPlayerId]) this.activeEffects.portableHole[targetPlayerId] = [];
+        this.activeEffects.portableHole[targetPlayerId].push(idx);
+        extra = { targetPlayerId, dieIndex: idx };
+        break;
+      }
+      case 'flick': {
+        const idx = this.pickRandomEligibleDieIndex();
+        if (idx == null) {
+          inv[itemId] = (inv[itemId] || 0) + 1;
+          this.emitEvent({ type: 'log', text: 'No eligible dice to flick.', kind: 'reject' });
+          return;
+        }
+        this.beginFlick(idx);
+        extra = { dieIndex: idx };
+        break;
+      }
+      case 'dookie': {
+        const x = -3 + Math.random() * 6;
+        const z = -2 + Math.random() * 4;
+        const zone = { x, z, r: 1.4, untilTs: Date.now() + DOOKIE_DURATION_MS };
+        this.activeEffects.dookieZones.push(zone);
+        this.physics.setDookieZones(this.activeEffects.dookieZones);
+        extra = { zone };
+        break;
+      }
+      case 'ice_rink': {
+        this.activeEffects.iceRinkUntilTs = Date.now() + ICE_DURATION_MS;
+        this.physics.setIceRink(true);
+        // Auto-revert when timer ends (host tick clears it)
+        extra = { until: this.activeEffects.iceRinkUntilTs };
+        break;
+      }
+      case 'saw_blade': {
+        const idx = this.pickRandomEligibleDieIndex();
+        if (idx == null) {
+          inv[itemId] = (inv[itemId] || 0) + 1;
+          this.emitEvent({ type: 'log', text: 'No eligible dice for Saw Blade.', kind: 'reject' });
+          return;
+        }
+        this.beginSawBlade(idx);
+        extra = { dieIndex: idx };
+        break;
+      }
+    }
+
+    this.emitEvent({ type: 'log', text: `${this.nameOf(fromId)} used ${item.icon} ${item.name}.`, kind: 'item' });
+    this.emitEvent({ type: 'item_used', playerId: fromId, itemId, ...extra });
+    this.emitState();
+  }
+
+  pickRandomEligibleDieIndex() {
+    const candidates = [];
+    for (let i = 0; i < this.diceState.length; i++) {
+      if (!this.diceState[i].locked && !this.activeEffects.destroyed.has(i)) candidates.push(i);
+    }
+    if (!candidates.length) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  beginFlick(dieIndex) {
+    // Re-roll exactly one die in place using a quick chaos pass.
+    this.physics.flickDie(dieIndex);
+    this.phase = 'rolling';
+    this.streaming = true;
+    this._sawBladeUntil = 0;
+    // Reuse settle-detection logic in tick() — when settled we update that one die's value.
+    this._flickIndex = dieIndex;
+  }
+
+  beginSawBlade(dieIndex) {
+    this.activeEffects.sawBlade = { dieIndex, untilTs: Date.now() + SAW_BLADE_DURATION_MS };
+    this.activeEffects.destroyed.add(dieIndex);
+    this.physics.startSawBlade(dieIndex);
+    this.phase = 'rolling';
+    this.streaming = true;
   }
 
   addPlayer(id, name) {
@@ -191,8 +356,16 @@ export class GameRoom {
   startTurn() {
     this.turnPoints = 0;
     this.diceState = freshDice();
+    this.selection = [];
     this.phase = 'awaiting_roll';
     this.physics.parkAll();
+    // Clear turn-scoped item effects.
+    this.activeEffects.destroyed.clear();
+    this.activeEffects.dookieZones = [];
+    this.physics.setDookieZones([]);
+    this.activeEffects.iceRinkUntilTs = 0;
+    this.physics.setIceRink(false);
+    this.activeEffects.sawBlade = null;
     // Pulse transforms so all clients clear the previous turn's dice off the table.
     this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
     this.emitEvent({ type: 'log', text: `${this.nameOf(this.order[this.currentIdx])}'s turn.` });
@@ -206,34 +379,67 @@ export class GameRoom {
   }
 
   beginRoll() {
+    const playerId = this.order[this.currentIdx];
+    const holes = (this.activeEffects.portableHole[playerId] || []).slice();
+
     const active = [];
     const lockedTransforms = [];
     for (let i = 0; i < this.diceState.length; i++) {
       if (this.diceState[i].locked) {
         lockedTransforms.push({ index: i, value: this.diceState[i].value });
-      } else {
+      } else if (!holes.includes(i)) {
         active.push(i);
       }
     }
-    // Hot dice: if everything was locked, reroll all five
-    if (active.length === 0) {
+    // Hot dice: if everything was locked, reroll all five (clears portable holes too).
+    if (active.length === 0 && holes.length === 0) {
       this.diceState = freshDice();
       for (let i = 0; i < 5; i++) active.push(i);
       lockedTransforms.length = 0;
-      this.emitEvent({ type: 'hot_dice', playerId: this.order[this.currentIdx] });
+      this.emitEvent({ type: 'hot_dice', playerId });
       this.emitEvent({ type: 'log', text: 'Hot dice — rerolling all five!' });
     }
+
+    // Hide portable-hole dice for this single roll.
+    this._hiddenForRoll = holes;
+    this.physics.parkIndices(holes);
+
     this.phase = 'rolling';
     this.physics.throwDice(active, lockedTransforms);
     this.streaming = true;
-    this.emitEvent({ type: 'roll_started', activeIndices: active });
+    this.emitEvent({ type: 'roll_started', activeIndices: active, hidden: holes });
     this.emitState();
   }
 
   // --- Physics tick: called by host's render loop ---
 
   tick(dt) {
+    // Auto-expire turn-scoped surface effects.
+    if (this.activeEffects.iceRinkUntilTs && Date.now() > this.activeEffects.iceRinkUntilTs) {
+      this.activeEffects.iceRinkUntilTs = 0;
+      this.physics.setIceRink(false);
+    }
+    if (this.activeEffects.dookieZones.length) {
+      const before = this.activeEffects.dookieZones.length;
+      this.activeEffects.dookieZones = this.activeEffects.dookieZones.filter(z => Date.now() < z.untilTs);
+      if (this.activeEffects.dookieZones.length !== before) {
+        this.physics.setDookieZones(this.activeEffects.dookieZones);
+      }
+    }
+
     if (this.phase === 'rolling') {
+      // Saw blade chaos: keep nudging the saw die for SAW_BLADE_DURATION_MS.
+      if (this.activeEffects.sawBlade) {
+        this.physics.tickSawBlade(this.activeEffects.sawBlade.dieIndex, dt);
+        if (Date.now() > this.activeEffects.sawBlade.untilTs) {
+          this.physics.endSawBlade(this.activeEffects.sawBlade.dieIndex);
+          this.activeEffects.sawBlade = null;
+        }
+      }
+
+      // Apply dookie viscous drag to dice within a sticky zone.
+      this.physics.applyDookieDrag();
+
       this.physics.step(dt);
 
       this.broadcastTimer += dt;
@@ -242,7 +448,9 @@ export class GameRoom {
         this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
       }
 
-      // Settle detection
+      // Don't try to settle while saw blade is still active.
+      if (this.activeEffects.sawBlade) return;
+
       if (!this._settleStart) this._settleStart = performance.now();
       const elapsed = performance.now() - this._settleStart;
       if (elapsed > 1000 && this.physics.isSettled()) {
@@ -281,16 +489,68 @@ export class GameRoom {
 
     // Game-turn path
     const values = this.physics.getValues();
-    for (let i = 0; i < this.diceState.length; i++) {
-      if (!this.diceState[i].locked) this.diceState[i].value = values[i];
+    const playerId = this.order[this.currentIdx];
+
+    // Flick: only the flicked die's value is updated; others retain their pre-flick state.
+    if (this._flickIndex != null) {
+      const idx = this._flickIndex;
+      this._flickIndex = null;
+      if (!this.diceState[idx].locked) this.diceState[idx].value = values[idx];
+      this.emitEvent({
+        type: 'roll_settled',
+        values: this.diceState.map(d => d.value),
+        locked: this.diceState.map(d => d.locked),
+      });
+      this.phase = 'awaiting_keep';
+      this.emitState();
+      return;
     }
+
+    const hidden = this._hiddenForRoll || [];
+    this._hiddenForRoll = null;
+    for (let i = 0; i < this.diceState.length; i++) {
+      if (!this.diceState[i].locked && !hidden.includes(i)) {
+        this.diceState[i].value = values[i];
+      }
+    }
+
+    // Weighted die: if no 1 in the just-rolled values, force one un-locked die to 1.
+    if (this.activeEffects.weighted.has(playerId)) {
+      this.activeEffects.weighted.delete(playerId);
+      const rolledIdxs = [];
+      for (let i = 0; i < this.diceState.length; i++) {
+        if (!this.diceState[i].locked && !hidden.includes(i)) rolledIdxs.push(i);
+      }
+      const has1 = rolledIdxs.some(i => this.diceState[i].value === 1);
+      if (!has1 && rolledIdxs.length) {
+        const target = rolledIdxs[Math.floor(Math.random() * rolledIdxs.length)];
+        this.diceState[target].value = 1;
+        this.physics.setDieFaceUp(target, 1);
+      }
+    }
+
+    // Restore portable-hole dice after their skipped roll.
+    if (hidden.length) {
+      this.activeEffects.portableHole[playerId] = (this.activeEffects.portableHole[playerId] || []).filter(i => !hidden.includes(i));
+      this.physics.restoreParked(hidden);
+    }
+
+    // Re-broadcast transforms once so any forced face-up shows up on clients.
+    this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
+
     this.emitEvent({
       type: 'roll_settled',
       values: this.diceState.map(d => d.value),
       locked: this.diceState.map(d => d.locked),
     });
 
-    const activeValues = this.diceState.filter(d => !d.locked).map(d => d.value);
+    // For bust check: destroyed (saw-bladed) dice contribute nothing.
+    const activeValues = [];
+    for (let i = 0; i < this.diceState.length; i++) {
+      if (!this.diceState[i].locked && !this.activeEffects.destroyed.has(i) && !hidden.includes(i)) {
+        activeValues.push(this.diceState[i].value);
+      }
+    }
     if (!rollHasScore(activeValues)) {
       this.phase = 'busted';
       const player = this.order[this.currentIdx];
@@ -317,6 +577,7 @@ export class GameRoom {
     for (const i of indexSet) {
       if (i < 0 || i >= this.diceState.length) return;
       if (this.diceState[i].locked) return;
+      if (this.activeEffects.destroyed.has(i)) return; // can't keep a saw-bladed die
       keepValues.push(this.diceState[i].value);
     }
     const evalRes = evaluateKeep(keepValues);
@@ -327,6 +588,7 @@ export class GameRoom {
     }
     // Apply: lock kept indices, add to turn points
     for (const i of indexSet) this.diceState[i].locked = true;
+    this.selection = [];
     this.turnPoints += evalRes.score;
     this.emitEvent({ type: 'score', playerId: byId, score: evalRes.score, kept: keepValues, turnPoints: this.turnPoints });
     this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} keeps ${formatKept(keepValues)} for +${evalRes.score}.` });
@@ -429,6 +691,16 @@ export class GameRoom {
       openingResults: { ...this.openingResults },
       openingActiveId: this.openingActiveId,
       winScore: WIN_SCORE,
+      // Shop state
+      inventories: Object.fromEntries(
+        Object.entries(this.inventories).map(([k, v]) => [k, { ...v }])
+      ),
+      selection: this.selection.slice(),
+      destroyed: [...this.activeEffects.destroyed],
+      hiddenIndices: this._hiddenForRoll || [],
+      dookieZones: this.activeEffects.dookieZones.map(z => ({ ...z })),
+      iceRinkUntilTs: this.activeEffects.iceRinkUntilTs,
+      sawBlade: this.activeEffects.sawBlade ? { ...this.activeEffects.sawBlade } : null,
     };
   }
 }

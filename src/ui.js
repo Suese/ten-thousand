@@ -1,4 +1,5 @@
 import { evaluateKeep } from './rules.js';
+import { ITEMS, isUsable } from './items.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -7,6 +8,12 @@ const els = {
   waiting: () => $('waiting'),
   gameUi: () => $('game-ui'),
   endScreen: () => $('end-screen'),
+  shopModal: () => $('shop-modal'),
+  shopBtn: () => $('shop-btn'),
+  shopClose: () => $('shop-close'),
+  shopGrid: () => $('shop-grid'),
+  shopBalance: () => $('shop-balance'),
+  inventory: () => $('inventory'),
   nameInput: () => $('name-input'),
   joinCode: () => $('join-code'),
   hostBtn: () => $('host-btn'),
@@ -232,6 +239,93 @@ export function log(text, kind = '') {
 export function clearLog() {
   els.log().innerHTML = '';
   logEntries = 0;
+}
+
+// ---- Shop modal ----
+
+let _shopHandlers = null;
+
+export function bindShop({ onPurchase, onUse }) {
+  _shopHandlers = { onPurchase, onUse };
+  els.shopBtn().addEventListener('click', () => {
+    els.shopModal().classList.remove('hidden');
+  });
+  els.shopClose().addEventListener('click', () => {
+    els.shopModal().classList.add('hidden');
+  });
+  els.shopModal().addEventListener('click', (e) => {
+    if (e.target === els.shopModal()) els.shopModal().classList.add('hidden');
+  });
+}
+
+export function setShopVisible(visible) {
+  els.shopBtn().classList.toggle('hidden', !visible);
+  if (!visible) els.shopModal().classList.add('hidden');
+}
+
+export function renderShop(state, myId) {
+  const balance = state?.totalScores?.[myId] ?? 0;
+  els.shopBalance().textContent = balance;
+
+  const grid = els.shopGrid();
+  grid.innerHTML = '';
+  const myInv = (state?.inventories?.[myId]) || {};
+  for (const [id, item] of Object.entries(ITEMS)) {
+    const card = document.createElement('div');
+    card.className = 'shop-card';
+    const owned = myInv[id] || 0;
+    const canAfford = balance >= item.cost;
+    card.innerHTML = `
+      <div class="icon">${item.icon}</div>
+      <div class="name">${item.name}</div>
+      <div class="desc">${item.desc}</div>
+      <div class="footer">
+        <span class="cost">${item.cost}</span>
+        ${owned > 0 ? `<span class="own">×${owned} owned</span>` : ''}
+        <button data-buy="${id}" ${canAfford ? '' : 'disabled'}>Buy</button>
+      </div>
+    `;
+    grid.appendChild(card);
+  }
+  // Wire buy buttons (re-bound each render because innerHTML wipes them)
+  grid.querySelectorAll('button[data-buy]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _shopHandlers?.onPurchase?.(btn.dataset.buy);
+    });
+  });
+}
+
+export function renderInventory(state, myId) {
+  const tray = els.inventory();
+  if (!state || state.phase === 'lobby' || state.phase === 'game_over') {
+    tray.classList.add('hidden');
+    return;
+  }
+  const inv = (state.inventories?.[myId]) || {};
+  const ids = Object.keys(inv).filter(id => inv[id] > 0);
+  if (!ids.length) {
+    tray.classList.add('hidden');
+    tray.innerHTML = '';
+    return;
+  }
+  tray.classList.remove('hidden');
+  tray.innerHTML = '';
+  const isMyTurn = state.currentPlayerId === myId;
+  for (const id of ids) {
+    const item = ITEMS[id];
+    if (!item) continue;
+    const usable = isUsable(item, { phase: state.phase, isMyTurn });
+    const el = document.createElement('div');
+    el.className = 'inv-item' + (usable ? ' usable' : ' disabled');
+    el.title = item.desc + (usable ? '' : ' (not usable right now)');
+    el.innerHTML = `<span class="ic">${item.icon}</span><span class="ct">×${inv[id]}</span>`;
+    if (usable) {
+      el.addEventListener('click', () => {
+        _shopHandlers?.onUse?.(id);
+      });
+    }
+    tray.appendChild(el);
+  }
 }
 
 export function renderEnd(state, myId) {

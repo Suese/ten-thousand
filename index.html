@@ -18,6 +18,23 @@
   <body>
     <div id="canvas-root"></div>
     <button id="mute-btn" title="Mute / unmute">🔊</button>
+    <button id="shop-btn" class="hidden" title="Open shop">🛒 Shop</button>
+
+    <div id="shop-modal" class="overlay hidden">
+      <div class="panel shop-panel">
+        <div class="shop-header">
+          <h2>🛒 Shop</h2>
+          <div class="shop-balance">
+            Your bank: <span id="shop-balance">0</span>
+          </div>
+          <button id="shop-close">✕</button>
+        </div>
+        <p class="tag">Spend banked points on chaos.</p>
+        <div id="shop-grid"></div>
+      </div>
+    </div>
+
+    <div id="inventory" class="hidden"></div>
 
     <div id="lobby" class="overlay">
       <div class="panel">

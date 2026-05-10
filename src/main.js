@@ -4,6 +4,7 @@ import { HostNet, ClientNet } from './net.js';
 import * as ui from './ui.js';
 import { SoundFX } from './audio.js';
 import { confettiBurst, coinShower, scorePopup, flashScreen, shake, centerOf } from './effects.js';
+import { ITEMS } from './items.js';
 
 // ---- Bootstrap scene + audio ----
 const scene = new Scene(document.getElementById('canvas-root'));
@@ -69,13 +70,22 @@ window.addEventListener('click', (e) => {
   if (!currentState) return;
   if (currentState.phase !== 'awaiting_keep') return;
   if (currentState.currentPlayerId !== myId) return;
-  if (e.target.closest('#game-ui') || e.target.closest('.overlay') || e.target.id === 'mute-btn') return;
+  if (e.target.closest('#game-ui') || e.target.closest('.overlay') || e.target.closest('#shop-btn') || e.target.closest('#mute-btn') || e.target.closest('#inventory')) return;
   const idx = scene.pickDie(e.clientX, e.clientY);
   if (idx < 0) return;
   if (currentState.diceState[idx]?.locked) return;
+  if ((currentState.destroyed || []).includes(idx)) return;
   if (selection.has(idx)) { selection.delete(idx); sfx.deselectDie(); }
   else { selection.add(idx); sfx.selectDie(); }
   redrawSelection();
+  // Broadcast my selection so spectators see what I'm picking.
+  sendAction({ name: 'set_selection', indices: [...selection] });
+});
+
+// Shop wiring
+ui.bindShop({
+  onPurchase: (itemId) => sendAction({ name: 'purchase', itemId }),
+  onUse:      (itemId) => sendAction({ name: 'use_item', itemId }),
 });
 
 // ---- Host bootstrap ----
@@ -210,7 +220,10 @@ function applyState(state) {
 
   if (state.phase === 'lobby') {
     scene.hideAllDice();
+    scene.syncDookieZones([]);
+    scene.setIceRink(false);
     ui.show('waiting');
+    ui.setShopVisible(false);
     ui.renderWaitingRoom({
       players: state.players,
       hostId: state.hostId,
@@ -220,19 +233,45 @@ function applyState(state) {
     });
   } else if (state.phase === 'game_over') {
     ui.show('endScreen');
+    ui.setShopVisible(false);
     ui.renderEnd(state, myId);
   } else {
     ui.show('gameUi');
+    ui.setShopVisible(true);
+    ui.renderShop(state, myId);
+    ui.renderInventory(state, myId);
     ui.renderGameState(state, myId);
+
     // Lock rings reflect locked dice
     for (let i = 0; i < state.diceState.length; i++) {
       scene.setLocked(i, !!state.diceState[i].locked);
     }
-    // If we're not in awaiting_keep, clear selection
+    // Hide destroyed dice (saw blade victims)
+    const destroyed = new Set(state.destroyed || []);
+    const hidden = new Set(state.hiddenIndices || []);
+    for (let i = 0; i < 5; i++) {
+      if (destroyed.has(i) || hidden.has(i)) scene.hideDie(i);
+    }
+
+    // Surface effects
+    scene.syncDookieZones(state.dookieZones || []);
+    scene.setIceRink(!!state.iceRinkUntilTs && state.iceRinkUntilTs > Date.now());
+
+    // If we're not in awaiting_keep, clear local selection set
     if (state.phase !== 'awaiting_keep') {
       selection.clear();
-      for (let i = 0; i < 5; i++) scene.setSelected(i, false);
     }
+
+    // Render selection rings — local set for active player (responsive),
+    // authoritative state.selection for spectators.
+    const isMyTurn = state.currentPlayerId === myId;
+    if (isMyTurn) {
+      for (let i = 0; i < 5; i++) scene.setSelected(i, selection.has(i), 0xffe07a);
+    } else {
+      const remoteSel = new Set(state.selection || []);
+      for (let i = 0; i < 5; i++) scene.setSelected(i, remoteSel.has(i), 0x88c8ff);
+    }
+
     redrawSelection();
   }
 }
@@ -262,8 +301,17 @@ function applyEvent(event) {
       sfx.bank();
       const where = centerOf(document.getElementById('action-bar'));
       scorePopup(`BANKED +${event.banked}`, where.x, where.y - 40, { bank: true });
-      coinShower(where.x, where.y - 30, Math.min(60, 15 + Math.floor(event.banked / 100)));
+      // Scale celebration size + duration with banked points.
+      // 100 pts ≈ 0.9s of coins; 1000 ≈ 2.3s; 3000 ≈ 5.3s; 10000 ≈ 8s (capped).
+      const count = Math.min(220, 20 + Math.floor(event.banked / 50));
+      const durMs = Math.min(8000, 800 + event.banked * 1.5);
+      coinShower(where.x, where.y - 30, count, durMs);
       flashScreen('#7cf3a0', 0.18);
+      // Extra cha-ching pulses spaced across the celebration for large banks
+      const extras = Math.min(5, Math.floor(event.banked / 600));
+      for (let i = 1; i <= extras; i++) {
+        setTimeout(() => sfx.bank(), (durMs / (extras + 1)) * i);
+      }
       break;
     }
     case 'bust': {
@@ -318,6 +366,31 @@ function applyEvent(event) {
     case 'log':
       ui.log(event.text, event.kind || '');
       break;
+    case 'purchase': {
+      sfx.bank();
+      const btn = document.getElementById('shop-btn');
+      if (btn) {
+        const r = btn.getBoundingClientRect();
+        coinShower(r.left + r.width / 2, r.top + r.height / 2, 12, 600);
+      }
+      break;
+    }
+    case 'item_used': {
+      const idMap = {
+        weighted:      () => { sfx.tone(880, 0.18, 'triangle', 0.22); sfx.tone(440, 0.25, 'sine', 0.2); },
+        portable_hole: () => { sfx.glide(900, 120, 0.45, 'sine', 0.28); sfx.tone(60, 0.35, 'sine', 0.2); },
+        flick:         () => { sfx.tone(1400, 0.05, 'square', 0.18); sfx.diceShake(); },
+        dookie:        () => { sfx.noiseBurst(0.4, 220, 1.4, 0.32); sfx.tone(110, 0.35, 'sawtooth', 0.18); },
+        ice_rink:      () => { for (let i = 0; i < 8; i++) setTimeout(() => sfx.tone(1500 + i * 200, 0.18, 'sine', 0.18), i * 50); },
+        saw_blade:     () => { sfx.glide(180, 250, 1.5, 'sawtooth', 0.32); sfx.glide(90, 110, 1.5, 'square', 0.25); },
+      };
+      idMap[event.itemId]?.();
+      const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+      const item = ITEMS[event.itemId];
+      if (item) scorePopup(`${item.icon} ${item.name}!`, cx, cy - 60, { big: true });
+      flashScreen('#ffd400', 0.18);
+      break;
+    }
     case 'game_over': {
       sfx.win();
       const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
@@ -354,10 +427,7 @@ function commitSelection(action) {
 
 function sendAction(action) {
   if (mode === 'host') {
-    if (action.name === 'start_game') gameRoom.startGame(myId);
-    else if (action.name === 'request_roll') gameRoom.requestRoll(myId);
-    else if (action.name === 'commit') gameRoom.commit(myId, action.action, action.indices);
-    else if (action.name === 'rematch') gameRoom.rematch(myId);
+    gameRoom.handleAction(myId, action);
   } else if (mode === 'client') {
     client.send({ type: 'action', action });
   }

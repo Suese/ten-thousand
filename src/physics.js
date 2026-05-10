@@ -45,6 +45,14 @@ export class DicePhysics {
     }
     this.activeIndices = [];
 
+    // Item-effect state
+    this.dookieZones = [];          // [{x, z, r}]
+    this.iceRink = false;
+    this._normalFriction = this.world.defaultContactMaterial.friction;
+    this._iceFriction = 0.04;
+    this.sawBladeIndex = -1;
+    this._sawBladeTimer = 0;
+
     // Collision callback — set externally. Fires for significant impacts only.
     this.onCollision = null;
     const dieBodySet = new Set(this.bodies);
@@ -68,6 +76,125 @@ export class DicePhysics {
       b.sleep();
     }
     this.activeIndices = [];
+  }
+
+  parkIndices(indices) {
+    for (const i of indices) {
+      const b = this.bodies[i];
+      b.velocity.set(0, 0, 0);
+      b.angularVelocity.set(0, 0, 0);
+      b.position.set(20 + i * 2, -20, 0);
+      b.sleep();
+    }
+  }
+
+  // Restore parked dice to a default rest pose so they're visible again next roll.
+  restoreParked(indices) {
+    for (const i of indices) {
+      const b = this.bodies[i];
+      b.velocity.set(0, 0, 0);
+      b.angularVelocity.set(0, 0, 0);
+      b.position.set(-3 + i * 1.4, 0.5, 4.2);
+      b.quaternion.set(0, 0, 0, 1);
+      b.sleep();
+    }
+  }
+
+  // ---- Item effects ----
+
+  setDookieZones(zones) { this.dookieZones = zones || []; }
+
+  setIceRink(on) {
+    this.iceRink = !!on;
+    this.world.defaultContactMaterial.friction = this.iceRink ? this._iceFriction : this._normalFriction;
+  }
+
+  applyDookieDrag() {
+    if (!this.dookieZones.length) return;
+    for (const b of this.bodies) {
+      for (const z of this.dookieZones) {
+        const dx = b.position.x - z.x;
+        const dz = b.position.z - z.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < z.r * z.r && b.position.y < 1.5) {
+          b.wakeUp();
+          // Sticky: heavy drag pulls die toward zone center and damps it
+          b.velocity.x *= 0.7;
+          b.velocity.z *= 0.7;
+          b.angularVelocity.x *= 0.6;
+          b.angularVelocity.y *= 0.6;
+          b.angularVelocity.z *= 0.6;
+          b.velocity.x -= dx * 1.2;
+          b.velocity.z -= dz * 1.2;
+        }
+      }
+    }
+  }
+
+  flickDie(dieIndex) {
+    const b = this.bodies[dieIndex];
+    b.wakeUp();
+    // Pop the die up off the table and spin it.
+    b.velocity.set((Math.random() - 0.5) * 5, 4.5 + Math.random() * 1.5, (Math.random() - 0.5) * 5);
+    b.angularVelocity.set(
+      (Math.random() - 0.5) * 22,
+      (Math.random() - 0.5) * 22,
+      (Math.random() - 0.5) * 22,
+    );
+    this.activeIndices = [dieIndex];
+  }
+
+  startSawBlade(dieIndex) {
+    this.sawBladeIndex = dieIndex;
+    this._sawBladeTimer = 0;
+    const b = this.bodies[dieIndex];
+    b.wakeUp();
+    // Massive spin, modest hop to start.
+    b.velocity.set((Math.random() - 0.5) * 6, 2 + Math.random() * 2, (Math.random() - 0.5) * 6);
+    b.angularVelocity.set(0, 0, 0);
+    // The activeIndices set is the saw die (so settle ignores other dice)
+    this.activeIndices = [dieIndex];
+  }
+
+  tickSawBlade(dieIndex, dt) {
+    const b = this.bodies[dieIndex];
+    b.wakeUp();
+    // Pin a constant fast spin around y.
+    b.angularVelocity.y = 38;
+    b.angularVelocity.x *= 0.8;
+    b.angularVelocity.z *= 0.8;
+    // Periodic random impulses so it bounces around erratically.
+    this._sawBladeTimer += dt;
+    if (this._sawBladeTimer > 0.18) {
+      this._sawBladeTimer = 0;
+      const ax = (Math.random() - 0.5) * 7;
+      const az = (Math.random() - 0.5) * 7;
+      b.velocity.x += ax;
+      b.velocity.z += az;
+      if (b.velocity.y < 0.5) b.velocity.y += 1.2;
+    }
+    // Keep it from escaping the table (clamp loosely).
+    if (b.position.y < 0.4) b.velocity.y += 4 * dt * 5;
+  }
+
+  endSawBlade(dieIndex) {
+    this.sawBladeIndex = -1;
+    const b = this.bodies[dieIndex];
+    // Damp it so the regular settle path can engage and pick up everyone's resting values.
+    b.velocity.scale(0.3, b.velocity);
+    b.angularVelocity.scale(0.3, b.angularVelocity);
+    // Promote all dice back to settle-tracking so onSettle reads everyone correctly.
+    this.activeIndices = this.bodies.map((_, i) => i);
+  }
+
+  // Force a die to show a specific face value while at rest (used by Weighted Die).
+  setDieFaceUp(dieIndex, value) {
+    const b = this.bodies[dieIndex];
+    const q = quaternionForFaceUp(value);
+    b.quaternion.copy(q);
+    b.velocity.set(0, 0, 0);
+    b.angularVelocity.set(0, 0, 0);
+    b.sleep();
   }
 
   // Throw the given dice indices. Other indices stay where they are (locked dice keep their place).

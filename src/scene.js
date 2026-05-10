@@ -135,6 +135,26 @@ export class Scene {
       this.dieMeshes[i].userData.lockRing = lockRing;
     }
 
+    // Track table material so we can swap to ice when items activate.
+    this._table = table;
+    this._feltMat = tableMat;
+    const iceTex = feltTexture({ width: 1024, height: 1024 });
+    this._iceMat = new THREE.MeshPhysicalMaterial({
+      color: 0xa9d4ff,
+      map: null,
+      bumpMap: bumpFrom(iceTex),
+      bumpScale: 0.02,
+      roughness: 0.18,
+      metalness: 0.05,
+      clearcoat: 0.85,
+      clearcoatRoughness: 0.1,
+      emissive: 0x1a3a55,
+      emissiveIntensity: 0.18,
+    });
+
+    // Container for dookie blob meshes
+    this._dookieMeshes = new Map(); // key -> mesh
+
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
 
@@ -168,8 +188,11 @@ export class Scene {
     if (offstage) lock.visible = false;
   }
 
-  setSelected(i, selected) {
-    if (this.dieMeshes[i].visible) this.selectionRings[i].visible = selected;
+  setSelected(i, selected, color = 0xffe07a) {
+    if (this.dieMeshes[i].visible) {
+      this.selectionRings[i].visible = selected;
+      this.selectionRings[i].material.color.setHex(color);
+    }
   }
   setLocked(i, locked) {
     if (this.dieMeshes[i].visible) this.dieMeshes[i].userData.lockRing.visible = locked;
@@ -193,6 +216,60 @@ export class Scene {
     if (hits.length === 0) return -1;
     return this.dieMeshes.indexOf(hits[0].object);
   }
+
+  setIceRink(on) {
+    this._table.material = on ? this._iceMat : this._feltMat;
+    this._table.material.needsUpdate = true;
+  }
+
+  syncDookieZones(zones) {
+    const want = new Set(zones.map(z => `${z.x.toFixed(2)}:${z.z.toFixed(2)}`));
+    // Remove gone
+    for (const [key, mesh] of [...this._dookieMeshes.entries()]) {
+      if (!want.has(key)) {
+        this.scene.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        this._dookieMeshes.delete(key);
+      }
+    }
+    // Add new
+    for (const z of zones) {
+      const key = `${z.x.toFixed(2)}:${z.z.toFixed(2)}`;
+      if (this._dookieMeshes.has(key)) continue;
+      const geom = new THREE.SphereGeometry(z.r * 0.55, 14, 10);
+      // Squash to a blob shape
+      geom.scale(1, 0.45, 1);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x4a2a10,
+        roughness: 0.9,
+        metalness: 0.0,
+      });
+      const m = new THREE.Mesh(geom, mat);
+      m.position.set(z.x, 0.15, z.z);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      this.scene.add(m);
+      this._dookieMeshes.set(key, m);
+
+      // Tiny 'flies' cloud above (a few black dots)
+      for (let f = 0; f < 4; f++) {
+        const fly = new THREE.Mesh(
+          new THREE.SphereGeometry(0.04, 6, 6),
+          new THREE.MeshBasicMaterial({ color: 0x000000 }),
+        );
+        fly.position.set(
+          z.x + (Math.random() - 0.5) * z.r * 0.6,
+          0.5 + Math.random() * 0.3,
+          z.z + (Math.random() - 0.5) * z.r * 0.6,
+        );
+        m.add(fly);
+        fly.position.sub(m.position);
+      }
+    }
+  }
+
+  hideDie(i) { this.dieMeshes[i].visible = false; this.selectionRings[i].visible = false; this.dieMeshes[i].userData.lockRing.visible = false; }
 
   start() {
     const loop = (now) => {
