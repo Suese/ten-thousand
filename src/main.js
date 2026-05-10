@@ -3,7 +3,7 @@ import { GameRoom } from './game.js';
 import { HostNet, ClientNet } from './net.js';
 import * as ui from './ui.js';
 import { SoundFX } from './audio.js';
-import { confettiBurst, coinShower, scorePopup, flashScreen, shake, centerOf } from './effects.js';
+import { confettiBurst, coinShower, scorePopup, flashScreen, shake, centerOf, bloodSplat } from './effects.js';
 import { ITEMS } from './items.js';
 import { colorHexForPlayer } from './colors.js';
 
@@ -375,6 +375,21 @@ function applyEvent(event) {
     case 'collision':
       sfx.collide(event.kind, event.intensity);
       break;
+    case 'selection_removed':
+      // Server detected a die was disturbed mid-keep — sync local optimistic set.
+      for (const i of event.indices || []) selection.delete(i);
+      redrawSelection();
+      break;
+    case 'portable_hole_animate':
+      scene.playPortableHoleAnimation(event.dieIndex, event.position);
+      sfx.glide(900, 90, 0.5, 'sine', 0.32);
+      break;
+    case 'blood_splat': {
+      if (!event.point) break;
+      const screen = scene.worldToScreen(event.point);
+      bloodSplat(screen.x, screen.y, 24 + Math.floor((event.intensity || 0.5) * 18));
+      break;
+    }
     case 'score': {
       const big = event.score >= 500;
       if (big) sfx.scoreBig(); else sfx.scoreSmall(event.score);

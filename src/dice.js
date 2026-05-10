@@ -285,7 +285,15 @@ export function createDieMesh() {
   return mesh;
 }
 
+// Returns the face value of whichever face is currently most-aligned with world up,
+// regardless of how tilted the die is.
 export function readDieValue(quat) {
+  return readDieFaceAndAlignment(quat).value;
+}
+
+// Returns { value, alignment } — alignment is dot(face_normal, world_up) in [-1, 1].
+// alignment ≥ 0.85 means the face is roughly flat / pointing upward (within ~32°).
+export function readDieFaceAndAlignment(quat) {
   const q = (quat instanceof THREE.Quaternion)
     ? quat
     : new THREE.Quaternion(quat.x, quat.y, quat.z, quat.w);
@@ -301,5 +309,5 @@ export function readDieValue(quat) {
       bestValue = FACE_VALUES[i];
     }
   }
-  return bestValue;
+  return { value: bestValue, alignment: bestDot };
 }

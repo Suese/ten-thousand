@@ -25,8 +25,12 @@ export class GameRoom {
 
     this.physics = new DicePhysics();
     this.physics.onCollision = (info) => {
-      // Forward to clients (and the host's own audio handler) as an event.
-      // Throttled lightly to avoid network spam during heavy bouncing.
+      // If the saw blade die slams another die, fire a blood-splatter event at the hit point.
+      const saw = this.activeEffects.sawBlade;
+      if (info.kind === 'dice' && saw && (info.aIndex === saw.dieIndex || info.bIndex === saw.dieIndex)) {
+        this.emitEvent({ type: 'blood_splat', point: info.point, intensity: info.intensity });
+      }
+      // Throttled audio collision broadcast.
       const now = performance.now();
       if (!this._lastCollideEv) this._lastCollideEv = 0;
       if (now - this._lastCollideEv < 25) return;
@@ -174,15 +178,20 @@ export class GameRoom {
         }
         if (!this.activeEffects.portableHole[targetPlayerId]) this.activeEffects.portableHole[targetPlayerId] = [];
         this.activeEffects.portableHole[targetPlayerId].push(idx);
-        // If used during awaiting_keep (or rolling), suck the die away immediately.
-        // beginRoll for the next cycle will clear hiddenNow (the die is already
-        // queued in portableHole and will stay parked through that roll).
         if (this.phase === 'awaiting_keep' || this.phase === 'rolling') {
+          // Capture the die's current 3D position so clients can spawn the
+          // black-hole disc + falling-die animation at the right spot. Selection
+          // clears immediately; the physics body parks AFTER the animation so
+          // the client doesn't see the die teleport mid-animation.
+          const b = this.physics.bodies[idx];
+          const pos = [b.position.x, b.position.y, b.position.z];
           this.activeEffects.hiddenNow.add(idx);
-          this.physics.parkIndices([idx]);
-          // Drop from selection if it was picked
           this.selection = this.selection.filter(i => i !== idx);
-          this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
+          this.emitEvent({ type: 'portable_hole_animate', dieIndex: idx, position: pos });
+          setTimeout(() => {
+            this.physics.parkIndices([idx]);
+            this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
+          }, 1100);
         }
         extra = { targetPlayerId, dieIndex: idx };
         break;
@@ -493,14 +502,10 @@ export class GameRoom {
         }
       }
 
-      // Apply dookie viscous drag to dice within a sticky zone.
       this.physics.applyDookieDrag();
-
-      // Apply continuous torque to weighted dice (bias toward 1-up). The torque
-      // only meaningfully affects dice that are awake / have momentum.
       this.physics.applyWeightedTorques();
-
       this.physics.step(dt);
+      this.physics.updateFaceTracker();
 
       this.broadcastTimer += dt;
       if (this.broadcastTimer >= 1 / 30) {
@@ -508,26 +513,63 @@ export class GameRoom {
         this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
       }
 
-      // Don't try to settle while saw blade is still active.
       if (this.activeEffects.sawBlade) return;
 
       if (!this._settleStart) this._settleStart = performance.now();
       const elapsed = performance.now() - this._settleStart;
-      if (elapsed > 1000 && this.physics.isSettled()) {
-        if (!this._stillStart) this._stillStart = performance.now();
-        if (performance.now() - this._stillStart > 250) {
-          this._settleStart = null;
-          this._stillStart = null;
-          this.onSettle();
+      if (elapsed > 300 && this.physics.isSettled()) {
+        this._settleStart = null;
+        this.onSettle();
+      } else if (elapsed > 8000) {
+        this.physics.unstickIfNeeded();
+        this._settleStart = performance.now() - 500;
+      }
+    } else if (this.phase === 'awaiting_keep') {
+      // Dice on ice keep sliding even after settling — physics has to run so we
+      // can observe disturbances (flicks, dookie collisions, saw blade hits) and
+      // unselect any selected die that lost its face-up alignment.
+      this.physics.applyDookieDrag();
+      this.physics.applyWeightedTorques();
+      this.physics.step(dt);
+      this.physics.updateFaceTracker();
+
+      this.broadcastTimer += dt;
+      if (this.broadcastTimer >= 1 / 30) {
+        this.broadcastTimer = 0;
+        this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
+      }
+
+      this._checkAwaitingKeepDisturbances();
+    }
+  }
+
+  _checkAwaitingKeepDisturbances() {
+    const faceStates = this.physics.getFaceStates();
+    const disturbed = [];
+    let stateChanged = false;
+    for (let i = 0; i < this.diceState.length; i++) {
+      if (this.diceState[i].locked) continue;
+      if (this.activeEffects.destroyed.has(i)) continue;
+      if (this.activeEffects.hiddenNow.has(i)) continue;
+      const fs = faceStates[i];
+      if (!fs) continue;
+      if (fs.stable) {
+        // Settled (possibly on a new face after disturbance). Update the value.
+        if (this.diceState[i].value !== fs.value) {
+          this.diceState[i].value = fs.value;
+          stateChanged = true;
         }
       } else {
-        this._stillStart = null;
-        if (elapsed > 8000) {
-          this.physics.unstickIfNeeded();
-          this._settleStart = performance.now() - 500;
-        }
+        // Currently disturbed — drop from selection if it was selected.
+        if (this.selection.includes(i)) disturbed.push(i);
       }
     }
+    if (disturbed.length) {
+      this.selection = this.selection.filter(i => !disturbed.includes(i));
+      this.emitEvent({ type: 'selection_removed', indices: disturbed });
+      stateChanged = true;
+    }
+    if (stateChanged) this.emitState();
   }
 
   onSettle() {

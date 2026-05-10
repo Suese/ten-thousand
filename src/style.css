@@ -499,6 +499,15 @@ button.primary:hover:not(:disabled) {
   will-change: transform, opacity;
 }
 
+.blood-spot {
+  position: fixed;
+  pointer-events: none;
+  z-index: 200;
+  border-radius: 50%;
+  box-shadow: 0 0 4px rgba(255, 0, 30, 0.6), inset -2px -3px 4px rgba(0,0,0,0.4);
+  will-change: transform, opacity;
+}
+
 .coin {
   position: fixed;
   pointer-events: none;

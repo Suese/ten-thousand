@@ -104,3 +104,35 @@ export function centerOf(el) {
   const r = el.getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
+
+// Blood-splat burst — red/dark-red particles spraying outward from a point.
+export function bloodSplat(x, y, count = 28) {
+  const colors = ['#a30000', '#d80020', '#7a0010', '#ff3050', '#5a000a'];
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('div');
+    el.className = 'blood-spot';
+    el.style.background = colors[(Math.random() * colors.length) | 0];
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    const sz = 4 + Math.random() * 9;
+    el.style.width = sz + 'px';
+    el.style.height = sz + 'px';
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 180 + Math.random() * 320;
+    const vx = Math.cos(angle) * speed;
+    const vy = Math.sin(angle) * speed - 80;
+    document.body.appendChild(el);
+    const start = performance.now();
+    const life = 0.9 + Math.random() * 0.4;
+    const animate = (now) => {
+      const t = (now - start) / 1000;
+      if (t > life) { el.remove(); return; }
+      const px = vx * t;
+      const py = vy * t + 0.5 * 700 * t * t;
+      el.style.transform = `translate3d(${px}px, ${py}px, 0)`;
+      el.style.opacity = String(Math.max(0, 1 - Math.pow(t / life, 1.5)));
+      requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  }
+}

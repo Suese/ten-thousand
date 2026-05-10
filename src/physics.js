@@ -1,5 +1,8 @@
 import * as CANNON from 'cannon-es';
-import { readDieValue } from './dice.js';
+import { readDieValue, readDieFaceAndAlignment } from './dice.js';
+
+const STABLE_FRAMES_REQUIRED = 10; // ~167ms at 60fps
+const FACE_UP_ALIGNMENT = 0.85;    // face normal · world up must exceed this
 
 export class DicePhysics {
   constructor() {
@@ -57,17 +60,37 @@ export class DicePhysics {
     this.weightedDice = new Set();
     this.weightedStrength = 2.8;
 
+    // Per-die face stability tracker: index -> { value, stableFrames }.
+    // A die is "stable" when its top face has been the same for >= STABLE_FRAMES_REQUIRED
+    // consecutive frames AND its alignment with world-up is sufficient. This lets us
+    // consider a sliding-on-ice die "settled" the moment its face stops changing.
+    this._faceTracker = new Map();
+
     // Collision callback — set externally. Fires for significant impacts only.
     this.onCollision = null;
     const dieBodySet = new Set(this.bodies);
     for (const body of this.bodies) {
+      const selfIdx = this.bodies.indexOf(body);
       body.addEventListener('collide', (event) => {
         if (!this.onCollision) return;
         const speed = Math.abs(event.contact.getImpactVelocityAlongNormal?.() ?? 0);
         if (speed < 1.2) return;
         const otherIsDie = dieBodySet.has(event.body);
         const intensity = Math.min(1, speed / 8);
-        this.onCollision({ kind: otherIsDie ? 'dice' : 'mat', intensity });
+        const otherIdx = otherIsDie ? this.bodies.indexOf(event.body) : -1;
+        // World-space contact point (midpoint of the two bodies for simplicity).
+        const ax = body.position.x, ay = body.position.y, az = body.position.z;
+        const bx = event.body.position?.x ?? ax, by = event.body.position?.y ?? ay, bz = event.body.position?.z ?? az;
+        const point = otherIsDie
+          ? [(ax + bx) / 2, (ay + by) / 2, (az + bz) / 2]
+          : [ax, 0.1, az];
+        this.onCollision({
+          kind: otherIsDie ? 'dice' : 'mat',
+          intensity,
+          aIndex: selfIdx,
+          bIndex: otherIdx,
+          point,
+        });
       });
     }
   }
@@ -80,6 +103,7 @@ export class DicePhysics {
       b.sleep();
     }
     this.activeIndices = [];
+    this._faceTracker.clear();
   }
 
   parkIndices(indices) {
@@ -89,6 +113,7 @@ export class DicePhysics {
       b.angularVelocity.set(0, 0, 0);
       b.position.set(20 + i * 2, -20, 0);
       b.sleep();
+      this._faceTracker.delete(i);
     }
   }
 
@@ -279,6 +304,8 @@ export class DicePhysics {
   // Throw the given dice indices. Other indices stay where they are (locked dice keep their place).
   throwDice(activeIndices, lockedTransforms = []) {
     this.activeIndices = activeIndices.slice();
+    // Clear face tracker for thrown dice so they have to re-stabilize from scratch.
+    for (const i of activeIndices) this._faceTracker.delete(i);
 
     for (let i = 0; i < this.bodies.length; i++) {
       const b = this.bodies[i];
@@ -329,14 +356,44 @@ export class DicePhysics {
     this.world.step(fixed, dt, 3);
   }
 
-  isSettled() {
+  // A die is "settled" when its top face has been the same for a few consecutive
+  // frames AND that face is roughly aligned with world up — regardless of whether
+  // the die is still sliding (e.g. on an ice rink).
+  updateFaceTracker() {
     for (const i of this.activeIndices) {
       const b = this.bodies[i];
-      const v = b.velocity.length();
-      const w = b.angularVelocity.length();
-      if (v > 0.05 || w > 0.05) return false;
+      const { value, alignment } = readDieFaceAndAlignment(b.quaternion);
+      const prev = this._faceTracker.get(i);
+      const aligned = alignment >= FACE_UP_ALIGNMENT;
+      if (prev && prev.value === value && aligned) {
+        this._faceTracker.set(i, { value, alignment, stableFrames: prev.stableFrames + 1 });
+      } else {
+        this._faceTracker.set(i, { value, alignment, stableFrames: aligned ? 1 : 0 });
+      }
+    }
+  }
+
+  isSettled() {
+    for (const i of this.activeIndices) {
+      const entry = this._faceTracker.get(i);
+      if (!entry || entry.stableFrames < STABLE_FRAMES_REQUIRED) return false;
     }
     return true;
+  }
+
+  // Per-die snapshot used during awaiting_keep to detect mid-keep disturbances.
+  getFaceStates() {
+    const out = [];
+    for (let i = 0; i < this.bodies.length; i++) {
+      const entry = this._faceTracker.get(i);
+      if (entry) {
+        out.push({ value: entry.value, stable: entry.stableFrames >= STABLE_FRAMES_REQUIRED });
+      } else {
+        const { value, alignment } = readDieFaceAndAlignment(this.bodies[i].quaternion);
+        out.push({ value, stable: alignment >= FACE_UP_ALIGNMENT });
+      }
+    }
+    return out;
   }
 
   getTransforms() {

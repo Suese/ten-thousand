@@ -389,6 +389,8 @@ export class Scene {
   onTick(cb) { this.tickCallbacks.push(cb); }
 
   setDieTransform(i, pos, quat, visible = true) {
+    // Skip if an animation is currently driving this die's transform (e.g. portable hole drop).
+    if (this._animationOverrides && this._animationOverrides.has(i)) return;
     const m = this.dieMeshes[i];
     const offstage = pos[1] < -5;
     m.visible = visible && !offstage;
@@ -402,6 +404,89 @@ export class Scene {
     lock.position.x = pos[0];
     lock.position.z = pos[2];
     if (offstage) lock.visible = false;
+  }
+
+  // Returns the screen-space [x, y] for a given 3D world point using this scene's camera.
+  worldToScreen(point) {
+    const v = new THREE.Vector3(point[0], point[1], point[2]);
+    v.project(this.camera);
+    return {
+      x: (v.x * 0.5 + 0.5) * window.innerWidth,
+      y: (-v.y * 0.5 + 0.5) * window.innerHeight,
+    };
+  }
+
+  // Portable Hole — spawns a black disc on the table at `worldPos`, then drops
+  // the targeted die into it (visually). The die mesh is animated locally;
+  // transforms for that index are blocked while the override is active so the
+  // host's eventual park-to-offstage doesn't yank the die during the drop.
+  playPortableHoleAnimation(dieIndex, worldPos) {
+    if (!this._animationOverrides) this._animationOverrides = new Set();
+    this._animationOverrides.add(dieIndex);
+
+    const dieMesh = this.dieMeshes[dieIndex];
+    const sel = this.selectionRings[dieIndex];
+    const lock = dieMesh.userData.lockRing;
+    sel.visible = false;
+    lock.visible = false;
+
+    // Black hole disc on the table surface.
+    const discGeom = new THREE.CircleGeometry(0.9, 32);
+    const discMat = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const disc = new THREE.Mesh(discGeom, discMat);
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(worldPos[0], 0.03, worldPos[2]);
+    disc.scale.setScalar(0.05);
+    disc.renderOrder = 2;
+    this.scene.add(disc);
+
+    // Pin the die at the disc's xz so the fall looks centered.
+    const startY = dieMesh.position.y;
+    dieMesh.position.set(worldPos[0], startY, worldPos[2]);
+
+    const start = performance.now();
+    const duration = 1050;
+    const animate = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+
+      // Disc grows quickly, holds, then shrinks at the end.
+      let discScale;
+      if (t < 0.18) discScale = t / 0.18;
+      else if (t > 0.88) discScale = (1 - t) / 0.12;
+      else discScale = 1;
+      disc.scale.setScalar(0.2 + 1.1 * Math.max(0, Math.min(1, discScale)));
+      discMat.opacity = 0.92 * Math.max(0, Math.min(1, discScale * 1.5));
+
+      // Die drops into the hole, rotating and shrinking until invisible.
+      if (t > 0.18) {
+        const phase = Math.min(1, (t - 0.18) / 0.72);
+        const eased = phase * phase * (3 - 2 * phase); // smoothstep
+        dieMesh.position.y = startY - eased * 1.8;
+        dieMesh.rotation.y += 0.18;
+        const s = 1 - eased * 0.95;
+        dieMesh.scale.setScalar(Math.max(0.05, s));
+        if (eased > 0.96) dieMesh.visible = false;
+      }
+
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        // Cleanup; release the transform lock so subsequent transforms (host has
+        // parked the die offstage by now) take over and reset scale.
+        this.scene.remove(disc);
+        discGeom.dispose();
+        discMat.dispose();
+        dieMesh.scale.setScalar(1);
+        this._animationOverrides.delete(dieIndex);
+      }
+    };
+    requestAnimationFrame(animate);
   }
 
   setSelected(i, selected, color = 0xffe07a) {
