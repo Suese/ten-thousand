@@ -106,7 +106,22 @@ export class DicePhysics {
 
   setIceRink(on) {
     this.iceRink = !!on;
-    this.world.defaultContactMaterial.friction = this.iceRink ? this._iceFriction : this._normalFriction;
+    // Drop friction to almost zero, bump restitution so dice glance off walls,
+    // and slash damping so the dice keep sliding/spinning instead of grinding to a halt.
+    this.world.defaultContactMaterial.friction = on ? 0.015 : this._normalFriction;
+    this.world.defaultContactMaterial.restitution = on ? 0.55 : 0.22;
+    for (const b of this.bodies) {
+      b.linearDamping = on ? 0.0 : 0.08;
+      b.angularDamping = on ? 0.005 : 0.12;
+      b.sleepSpeedLimit = on ? 0.04 : 0.15;
+      b.sleepTimeLimit = on ? 1.2 : 0.4;
+    }
+    // If dice are mid-flight or just landed, wake them so the slip applies right away.
+    if (on) {
+      for (const b of this.bodies) {
+        if (b.position.y > -1) b.wakeUp();
+      }
+    }
   }
 
   applyDookieDrag() {
@@ -131,16 +146,38 @@ export class DicePhysics {
     }
   }
 
-  flickDie(dieIndex) {
+  // Flick a die. If hitPoint is provided, the impulse direction is "into" the die
+  // at that point — the die flies in the opposite direction of the click, like a real flick.
+  flickDie(dieIndex, hitPoint = null) {
     const b = this.bodies[dieIndex];
     b.wakeUp();
-    // Pop the die up off the table and spin it.
-    b.velocity.set((Math.random() - 0.5) * 5, 4.5 + Math.random() * 1.5, (Math.random() - 0.5) * 5);
-    b.angularVelocity.set(
-      (Math.random() - 0.5) * 22,
-      (Math.random() - 0.5) * 22,
-      (Math.random() - 0.5) * 22,
-    );
+    let vx, vy, vz;
+    if (hitPoint) {
+      const dx = hitPoint[0] - b.position.x;
+      const dy = hitPoint[1] - b.position.y;
+      const dz = hitPoint[2] - b.position.z;
+      const len = Math.hypot(dx, dy, dz) || 1;
+      const force = 9;
+      // Push die away from the hit point.
+      vx = -(dx / len) * force;
+      vy = Math.max(2.5, -(dy / len) * force * 0.6 + 3);
+      vz = -(dz / len) * force;
+      // Spin around an axis perpendicular to the flick direction.
+      const ax = (Math.random() - 0.5) * 14;
+      const ay = (Math.random() - 0.5) * 14;
+      const az = (Math.random() - 0.5) * 14;
+      b.angularVelocity.set(ax, ay, az);
+    } else {
+      vx = (Math.random() - 0.5) * 5;
+      vy = 4.5 + Math.random() * 1.5;
+      vz = (Math.random() - 0.5) * 5;
+      b.angularVelocity.set(
+        (Math.random() - 0.5) * 22,
+        (Math.random() - 0.5) * 22,
+        (Math.random() - 0.5) * 22,
+      );
+    }
+    b.velocity.set(vx, vy, vz);
     this.activeIndices = [dieIndex];
   }
 

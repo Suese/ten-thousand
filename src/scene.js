@@ -194,6 +194,27 @@ export class Scene {
       this.selectionRings[i].material.color.setHex(color);
     }
   }
+
+  setDieWeighted(i, on) {
+    const m = this.dieMeshes[i];
+    if (!Array.isArray(m.material)) return;
+    // Cache originals once; on subsequent calls just swap colors / emissive.
+    if (!m.userData.origColors) {
+      m.userData.origColors = m.material.map(mat => mat.color.getHex());
+      m.userData.origEmissive = m.material.map(mat => mat.emissive ? mat.emissive.getHex() : 0x000000);
+    }
+    for (let k = 0; k < m.material.length; k++) {
+      const mat = m.material[k];
+      if (on) {
+        mat.color.setHex(0xffd400);
+        if (mat.emissive) { mat.emissive.setHex(0x553300); mat.emissiveIntensity = 0.4; }
+      } else {
+        mat.color.setHex(m.userData.origColors[k]);
+        if (mat.emissive) { mat.emissive.setHex(m.userData.origEmissive[k]); mat.emissiveIntensity = 1; }
+      }
+      mat.needsUpdate = true;
+    }
+  }
   setLocked(i, locked) {
     if (this.dieMeshes[i].visible) this.dieMeshes[i].userData.lockRing.visible = locked;
     else this.dieMeshes[i].userData.lockRing.visible = false;
@@ -213,8 +234,22 @@ export class Scene {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const visible = this.dieMeshes.filter(m => m.visible);
     const hits = this.raycaster.intersectObjects(visible, false);
-    if (hits.length === 0) return -1;
-    return this.dieMeshes.indexOf(hits[0].object);
+    if (hits.length === 0) return { index: -1, point: null };
+    const idx = this.dieMeshes.indexOf(hits[0].object);
+    const p = hits[0].point;
+    return { index: idx, point: [p.x, p.y, p.z] };
+  }
+
+  // Returns {x, z} on the table plane (y=0) at the given screen coords, or null if outside the felt.
+  pickTablePoint(clientX, clientY) {
+    this.pointer.x = (clientX / window.innerWidth) * 2 - 1;
+    this.pointer.y = -(clientY / window.innerHeight) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const hit = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(plane, hit)) return null;
+    if (hit.x < -7 || hit.x > 7 || hit.z < -5 || hit.z > 5) return null;
+    return { x: hit.x, z: hit.z };
   }
 
   setIceRink(on) {

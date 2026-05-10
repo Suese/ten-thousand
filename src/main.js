@@ -65,27 +65,88 @@ ui.bindEnd({
   onPlayAgain: () => sendAction({ name: 'rematch' }),
 });
 
-// Click-to-select dice when it's my turn in awaiting_keep
+// ---- Aim mode (for items that need targeting) ----
+let aimMode = null; // { itemId, type: 'point' | 'die', hint }
+const reticleEl = document.getElementById('reticle');
+const reticleHint = reticleEl.querySelector('.hint');
+
+function enterAimMode(itemId, type, hint) {
+  aimMode = { itemId, type, hint };
+  reticleHint.textContent = hint;
+  reticleEl.classList.remove('hidden');
+  document.body.classList.add('aiming');
+  document.body.classList.toggle('aiming-die', type === 'die');
+}
+
+function exitAimMode() {
+  aimMode = null;
+  reticleEl.classList.add('hidden');
+  document.body.classList.remove('aiming', 'aiming-die');
+}
+
+window.addEventListener('mousemove', (e) => {
+  if (!aimMode) return;
+  reticleEl.style.left = e.clientX + 'px';
+  reticleEl.style.top = e.clientY + 'px';
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && aimMode) exitAimMode();
+});
+window.addEventListener('contextmenu', (e) => {
+  if (aimMode) { e.preventDefault(); exitAimMode(); }
+});
+
+// Click handler — handles both aim-mode targeting and normal dice selection
 window.addEventListener('click', (e) => {
+  if (e.target.closest('.overlay') || e.target.closest('#shop-btn') || e.target.closest('#mute-btn') || e.target.closest('#inventory') || e.target.closest('#action-bar')) return;
+
+  // Aim-mode interception comes first
+  if (aimMode) {
+    if (aimMode.type === 'point') {
+      const p = scene.pickTablePoint(e.clientX, e.clientY);
+      if (p) {
+        sendAction({ name: 'use_item', itemId: aimMode.itemId, params: { x: p.x, z: p.z } });
+        exitAimMode();
+      }
+      return;
+    } else if (aimMode.type === 'die') {
+      const { index, point } = scene.pickDie(e.clientX, e.clientY);
+      if (index >= 0) {
+        sendAction({ name: 'use_item', itemId: aimMode.itemId, params: { dieIndex: index, hitPoint: point } });
+        exitAimMode();
+      }
+      return;
+    }
+  }
+
+  // Normal dice selection during awaiting_keep on my turn
   if (!currentState) return;
   if (currentState.phase !== 'awaiting_keep') return;
   if (currentState.currentPlayerId !== myId) return;
-  if (e.target.closest('#game-ui') || e.target.closest('.overlay') || e.target.closest('#shop-btn') || e.target.closest('#mute-btn') || e.target.closest('#inventory')) return;
-  const idx = scene.pickDie(e.clientX, e.clientY);
-  if (idx < 0) return;
-  if (currentState.diceState[idx]?.locked) return;
-  if ((currentState.destroyed || []).includes(idx)) return;
-  if (selection.has(idx)) { selection.delete(idx); sfx.deselectDie(); }
-  else { selection.add(idx); sfx.selectDie(); }
+  const { index } = scene.pickDie(e.clientX, e.clientY);
+  if (index < 0) return;
+  if (currentState.diceState[index]?.locked) return;
+  if ((currentState.destroyed || []).includes(index)) return;
+  if ((currentState.hiddenNow || []).includes(index)) return;
+  if (selection.has(index)) { selection.delete(index); sfx.deselectDie(); }
+  else { selection.add(index); sfx.selectDie(); }
   redrawSelection();
-  // Broadcast my selection so spectators see what I'm picking.
   sendAction({ name: 'set_selection', indices: [...selection] });
 });
 
 // Shop wiring
 ui.bindShop({
   onPurchase: (itemId) => sendAction({ name: 'purchase', itemId }),
-  onUse:      (itemId) => sendAction({ name: 'use_item', itemId }),
+  onUse:      (itemId) => {
+    const item = ITEMS[itemId];
+    if (item?.needsAim === 'point') {
+      enterAimMode(itemId, 'point', `${item.icon} Click on the table to throw`);
+    } else if (item?.needsAim === 'die') {
+      enterAimMode(itemId, 'die', `${item.icon} Click any un-locked die to flick`);
+    } else {
+      sendAction({ name: 'use_item', itemId });
+    }
+  },
 });
 
 // ---- Host bootstrap ----
@@ -246,12 +307,17 @@ function applyState(state) {
     for (let i = 0; i < state.diceState.length; i++) {
       scene.setLocked(i, !!state.diceState[i].locked);
     }
-    // Hide destroyed dice (saw blade victims)
+    // Hide destroyed dice (saw blade victims), parked-for-roll dice, and currently sucked-away dice
     const destroyed = new Set(state.destroyed || []);
     const hidden = new Set(state.hiddenIndices || []);
+    const hiddenNow = new Set(state.hiddenNow || []);
     for (let i = 0; i < 5; i++) {
-      if (destroyed.has(i) || hidden.has(i)) scene.hideDie(i);
+      if (destroyed.has(i) || hidden.has(i) || hiddenNow.has(i)) scene.hideDie(i);
     }
+
+    // Yellow tint on weighted dice
+    const weighted = new Set(state.weightedDice || []);
+    for (let i = 0; i < 5; i++) scene.setDieWeighted(i, weighted.has(i));
 
     // Surface effects
     scene.syncDookieZones(state.dookieZones || []);
@@ -380,7 +446,14 @@ function applyEvent(event) {
         weighted:      () => { sfx.tone(880, 0.18, 'triangle', 0.22); sfx.tone(440, 0.25, 'sine', 0.2); },
         portable_hole: () => { sfx.glide(900, 120, 0.45, 'sine', 0.28); sfx.tone(60, 0.35, 'sine', 0.2); },
         flick:         () => { sfx.tone(1400, 0.05, 'square', 0.18); sfx.diceShake(); },
-        dookie:        () => { sfx.noiseBurst(0.4, 220, 1.4, 0.32); sfx.tone(110, 0.35, 'sawtooth', 0.18); },
+        dookie:        () => {
+          // Shotgun blast + cascade of wet splats
+          sfx.noiseBurst(0.07, 900, 0.4, 0.45);
+          sfx.tone(60, 0.18, 'sine', 0.4);
+          for (let i = 0; i < 6; i++) {
+            setTimeout(() => sfx.noiseBurst(0.12 + Math.random() * 0.1, 160 + Math.random() * 220, 1.4, 0.22), 80 + i * 55 + Math.random() * 30);
+          }
+        },
         ice_rink:      () => { for (let i = 0; i < 8; i++) setTimeout(() => sfx.tone(1500 + i * 200, 0.18, 'sine', 0.18), i * 50); },
         saw_blade:     () => { sfx.glide(180, 250, 1.5, 'sawtooth', 0.32); sfx.glide(90, 110, 1.5, 'square', 0.25); },
       };

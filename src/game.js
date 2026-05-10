@@ -62,6 +62,8 @@ export class GameRoom {
       weighted: new Set(),       // player ids whose next roll forces a 1
       portableHole: {},          // playerId -> [dieIndex...] absent for next roll
       destroyed: new Set(),      // dice indices destroyed by saw blade for this turn
+      weightedDice: new Set(),   // dice indices forced to 1 by weighted die this turn
+      hiddenNow: new Set(),      // dice currently sucked into a portable hole, restored next roll
       dookieZones: [],           // [{x, z, r, untilTs}]
       iceRinkUntilTs: 0,         // timestamp; while > now, friction lowered
       sawBlade: null,            // { dieIndex, untilTs } or null
@@ -155,27 +157,52 @@ export class GameRoom {
         }
         if (!this.activeEffects.portableHole[targetPlayerId]) this.activeEffects.portableHole[targetPlayerId] = [];
         this.activeEffects.portableHole[targetPlayerId].push(idx);
+        // If used during awaiting_keep (or rolling), suck the die away immediately.
+        // beginRoll for the next cycle will clear hiddenNow (the die is already
+        // queued in portableHole and will stay parked through that roll).
+        if (this.phase === 'awaiting_keep' || this.phase === 'rolling') {
+          this.activeEffects.hiddenNow.add(idx);
+          this.physics.parkIndices([idx]);
+          // Drop from selection if it was picked
+          this.selection = this.selection.filter(i => i !== idx);
+          this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
+        }
         extra = { targetPlayerId, dieIndex: idx };
         break;
       }
       case 'flick': {
-        const idx = this.pickRandomEligibleDieIndex();
-        if (idx == null) {
+        // Player chose a specific die (and hit point) to flick.
+        let idx = (params && typeof params.dieIndex === 'number') ? params.dieIndex : null;
+        if (idx == null || this.diceState[idx]?.locked || this.activeEffects.destroyed.has(idx) || this.activeEffects.hiddenNow.has(idx)) {
+          // Refund — invalid target.
           inv[itemId] = (inv[itemId] || 0) + 1;
-          this.emitEvent({ type: 'log', text: 'No eligible dice to flick.', kind: 'reject' });
+          this.emitEvent({ type: 'log', text: 'Invalid flick target.', kind: 'reject' });
           return;
         }
-        this.beginFlick(idx);
-        extra = { dieIndex: idx };
+        const hit = Array.isArray(params.hitPoint) && params.hitPoint.length === 3 ? params.hitPoint : null;
+        this.beginFlick(idx, hit);
+        extra = { dieIndex: idx, hitPoint: hit };
         break;
       }
       case 'dookie': {
-        const x = -3 + Math.random() * 6;
-        const z = -2 + Math.random() * 4;
-        const zone = { x, z, r: 1.4, untilTs: Date.now() + DOOKIE_DURATION_MS };
-        this.activeEffects.dookieZones.push(zone);
+        // Shotgun-spread splatter: 1 main splotch where you aimed + 6 random outliers.
+        let cx = (params && typeof params.x === 'number') ? params.x : (-3 + Math.random() * 6);
+        let cz = (params && typeof params.z === 'number') ? params.z : (-2 + Math.random() * 4);
+        cx = Math.max(-6.5, Math.min(6.5, cx));
+        cz = Math.max(-4.5, Math.min(4.5, cz));
+        const untilTs = Date.now() + DOOKIE_DURATION_MS;
+        const splotches = [];
+        splotches.push({ x: cx, z: cz, r: 0.85 + Math.random() * 0.25, untilTs });
+        for (let k = 0; k < 6; k++) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = 0.6 + Math.random() * 1.8;
+          const sx = Math.max(-6.5, Math.min(6.5, cx + Math.cos(angle) * dist));
+          const sz = Math.max(-4.5, Math.min(4.5, cz + Math.sin(angle) * dist));
+          splotches.push({ x: sx, z: sz, r: 0.32 + Math.random() * 0.45, untilTs });
+        }
+        for (const s of splotches) this.activeEffects.dookieZones.push(s);
         this.physics.setDookieZones(this.activeEffects.dookieZones);
-        extra = { zone };
+        extra = { zones: splotches };
         break;
       }
       case 'ice_rink': {
@@ -206,19 +233,20 @@ export class GameRoom {
   pickRandomEligibleDieIndex() {
     const candidates = [];
     for (let i = 0; i < this.diceState.length; i++) {
-      if (!this.diceState[i].locked && !this.activeEffects.destroyed.has(i)) candidates.push(i);
+      if (this.diceState[i].locked) continue;
+      if (this.activeEffects.destroyed.has(i)) continue;
+      if (this.activeEffects.hiddenNow.has(i)) continue;
+      candidates.push(i);
     }
     if (!candidates.length) return null;
     return candidates[Math.floor(Math.random() * candidates.length)];
   }
 
-  beginFlick(dieIndex) {
-    // Re-roll exactly one die in place using a quick chaos pass.
-    this.physics.flickDie(dieIndex);
+  beginFlick(dieIndex, hitPoint = null) {
+    this.physics.flickDie(dieIndex, hitPoint);
     this.phase = 'rolling';
     this.streaming = true;
     this._sawBladeUntil = 0;
-    // Reuse settle-detection logic in tick() — when settled we update that one die's value.
     this._flickIndex = dieIndex;
   }
 
@@ -361,6 +389,8 @@ export class GameRoom {
     this.physics.parkAll();
     // Clear turn-scoped item effects.
     this.activeEffects.destroyed.clear();
+    this.activeEffects.weightedDice.clear();
+    this.activeEffects.hiddenNow.clear();
     this.activeEffects.dookieZones = [];
     this.physics.setDookieZones([]);
     this.activeEffects.iceRinkUntilTs = 0;
@@ -403,6 +433,9 @@ export class GameRoom {
     // Hide portable-hole dice for this single roll.
     this._hiddenForRoll = holes;
     this.physics.parkIndices(holes);
+    // Once portable holes are queued for this roll, clear the "hiddenNow" flag —
+    // the dice are now properly accounted for as roll-scoped holes.
+    this.activeEffects.hiddenNow.clear();
 
     this.phase = 'rolling';
     this.physics.throwDice(active, lockedTransforms);
@@ -526,6 +559,11 @@ export class GameRoom {
         const target = rolledIdxs[Math.floor(Math.random() * rolledIdxs.length)];
         this.diceState[target].value = 1;
         this.physics.setDieFaceUp(target, 1);
+        this.activeEffects.weightedDice.add(target);
+      } else if (has1) {
+        // Mark whichever 1-showing die as the "weighted" one for visual.
+        const idx = rolledIdxs.find(i => this.diceState[i].value === 1);
+        if (idx != null) this.activeEffects.weightedDice.add(idx);
       }
     }
 
@@ -578,6 +616,7 @@ export class GameRoom {
       if (i < 0 || i >= this.diceState.length) return;
       if (this.diceState[i].locked) return;
       if (this.activeEffects.destroyed.has(i)) return; // can't keep a saw-bladed die
+      if (this.activeEffects.hiddenNow.has(i)) return; // can't keep a die in a portable hole
       keepValues.push(this.diceState[i].value);
     }
     const evalRes = evaluateKeep(keepValues);
@@ -697,6 +736,8 @@ export class GameRoom {
       ),
       selection: this.selection.slice(),
       destroyed: [...this.activeEffects.destroyed],
+      weightedDice: [...this.activeEffects.weightedDice],
+      hiddenNow: [...this.activeEffects.hiddenNow],
       hiddenIndices: this._hiddenForRoll || [],
       dookieZones: this.activeEffects.dookieZones.map(z => ({ ...z })),
       iceRinkUntilTs: this.activeEffects.iceRinkUntilTs,
