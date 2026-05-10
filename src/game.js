@@ -549,6 +549,12 @@ export class GameRoom {
       const idx = this._flickIndex;
       this._flickIndex = null;
       if (!this.diceState[idx].locked) this.diceState[idx].value = values[idx];
+      // Weighted-die guarantee: if the flicked die is weighted, snap to 1.
+      if (this.activeEffects.weightedDice.has(idx) && !this.diceState[idx].locked && this.diceState[idx].value !== 1) {
+        this.diceState[idx].value = 1;
+        this.physics.setDieFaceUp(idx, 1);
+      }
+      this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
       this.emitEvent({
         type: 'roll_settled',
         values: this.diceState.map(d => d.value),
@@ -567,7 +573,18 @@ export class GameRoom {
       }
     }
 
-    // (Weighted die is now handled by continuous torque biasing in the physics tick.)
+    // Weighted die guarantee: physics biased the die toward 1 during the roll
+    // (so the visual is natural), but if it didn't fully align we snap it to a
+    // 1-face here so the player can always count on the result.
+    for (const idx of this.activeEffects.weightedDice) {
+      if (this.diceState[idx].locked) continue;
+      if (this.activeEffects.destroyed.has(idx)) continue;
+      if (hidden.includes(idx)) continue;
+      if (this.diceState[idx].value !== 1) {
+        this.diceState[idx].value = 1;
+        this.physics.setDieFaceUp(idx, 1);
+      }
+    }
 
     // Restore portable-hole dice after their skipped roll.
     if (hidden.length) {
