@@ -245,9 +245,10 @@ export class DicePhysics {
   }
 
   // Each step, nudge every weighted die's local +X axis (the "1" face) toward world up.
-  // The torque only actually moves the die while it has angular momentum to rotate
-  // through; a settled (sleeping) die is left alone. Strong spin overpowers the bias —
-  // if the die slows down before alignment finishes, it can land on something else.
+  // Crucially the torque only fires while the die has real momentum — once it's
+  // slowing down it gets left alone so settle detection can fire normally. Without
+  // this gate, the constant nudge keeps the die above the settle velocity threshold
+  // and it never comes to rest. Strong spin still overpowers the bias mid-roll.
   applyWeightedTorques() {
     if (!this.weightedDice.size) return;
     const up = new CANNON.Vec3(0, 1, 0);
@@ -256,10 +257,9 @@ export class DicePhysics {
     for (const idx of this.weightedDice) {
       const b = this.bodies[idx];
       if (b.sleepState === CANNON.Body.SLEEPING) continue;
-      // Where the "1" face currently points in world space.
+      const motion = b.velocity.length() + b.angularVelocity.length();
+      if (motion < 0.4) continue; // give settle a chance — no torque on near-still dice
       b.quaternion.vmult(localOneAxis, worldOneAxis);
-      // Cross product gives the rotation axis to align worldOneAxis -> up.
-      // Magnitude of the cross is sin(angle), so already attenuates near alignment.
       const torque = worldOneAxis.cross(up);
       torque.scale(this.weightedStrength, torque);
       b.applyTorque(torque);
