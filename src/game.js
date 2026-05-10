@@ -145,12 +145,12 @@ export class GameRoom {
 
     switch (itemId) {
       case 'weighted': {
-        // Player chose a specific die. Add to physics torque-bias set;
-        // the bias only takes effect while the die is awake (i.e., has momentum).
-        const idx = (params && typeof params.dieIndex === 'number') ? params.dieIndex : null;
+        // Player chose a specific die OR (pre-roll) is letting the host pick one randomly.
+        let idx = (params && typeof params.dieIndex === 'number') ? params.dieIndex : null;
+        if (idx == null) idx = this.pickRandomEligibleDieIndex();
         if (idx == null || this.diceState[idx]?.locked || this.activeEffects.destroyed.has(idx) || this.activeEffects.hiddenNow.has(idx)) {
           inv[itemId] = (inv[itemId] || 0) + 1;
-          this.emitEvent({ type: 'log', text: 'Invalid weighted target.', kind: 'reject' });
+          this.emitEvent({ type: 'log', text: 'No eligible die to weight.', kind: 'reject' });
           return;
         }
         this.activeEffects.weightedDice.add(idx);

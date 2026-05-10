@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createDieMesh } from './dice.js';
-import { woodTexture, feltTexture, bumpFrom } from './textures.js';
+import { woodTexture, feltTexture, iceTexture, bumpFrom } from './textures.js';
 
 export class Scene {
   constructor(rootEl) {
@@ -60,9 +60,8 @@ export class Scene {
     neonBlue.position.set(7, 1.5, 4);
     this.scene.add(neonBlue);
 
-    // ----- Table felt -----
+    // ----- Table felt (texture re-baked when a logo is provided) -----
     const felt = feltTexture();
-    felt.repeat.set(2, 1.4);
     const feltBump = bumpFrom(felt);
     const tableGeom = new THREE.PlaneGeometry(14, 10);
     const tableMat = new THREE.MeshPhysicalMaterial({
@@ -138,19 +137,19 @@ export class Scene {
     // Track table material so we can swap to ice when items activate.
     this._table = table;
     this._feltMat = tableMat;
-    const iceTex = feltTexture({ width: 1024, height: 1024 });
+    const iceTex = iceTexture();
     this._iceMat = new THREE.MeshPhysicalMaterial({
-      color: 0xa9d4ff,
-      map: null,
+      map: iceTex,
       bumpMap: bumpFrom(iceTex),
-      bumpScale: 0.02,
-      roughness: 0.18,
+      bumpScale: 0.06,
+      roughness: 0.22,
       metalness: 0.05,
-      clearcoat: 0.85,
-      clearcoatRoughness: 0.1,
+      clearcoat: 0.95,
+      clearcoatRoughness: 0.06,
       emissive: 0x1a3a55,
-      emissiveIntensity: 0.18,
+      emissiveIntensity: 0.12,
     });
+    this._logoImage = null;
 
     // Container for dookie blob meshes
     this._dookieMeshes = new Map(); // key -> mesh
@@ -197,23 +196,8 @@ export class Scene {
 
   setDieWeighted(i, on) {
     const m = this.dieMeshes[i];
-    if (!Array.isArray(m.material)) return;
-    // Cache originals once; on subsequent calls just swap colors / emissive.
-    if (!m.userData.origColors) {
-      m.userData.origColors = m.material.map(mat => mat.color.getHex());
-      m.userData.origEmissive = m.material.map(mat => mat.emissive ? mat.emissive.getHex() : 0x000000);
-    }
-    for (let k = 0; k < m.material.length; k++) {
-      const mat = m.material[k];
-      if (on) {
-        mat.color.setHex(0xffd400);
-        if (mat.emissive) { mat.emissive.setHex(0x553300); mat.emissiveIntensity = 0.4; }
-      } else {
-        mat.color.setHex(m.userData.origColors[k]);
-        if (mat.emissive) { mat.emissive.setHex(m.userData.origEmissive[k]); mat.emissiveIntensity = 1; }
-      }
-      mat.needsUpdate = true;
-    }
+    const target = on ? m.userData.materialsGold : m.userData.materialsRed;
+    if (target && m.material !== target) m.material = target;
   }
   setLocked(i, locked) {
     if (this.dieMeshes[i].visible) this.dieMeshes[i].userData.lockRing.visible = locked;
@@ -255,6 +239,30 @@ export class Scene {
   setIceRink(on) {
     this._table.material = on ? this._iceMat : this._feltMat;
     this._table.material.needsUpdate = true;
+  }
+
+  // Bake a logo image (HTMLImageElement) into both felt and ice canvas textures.
+  // Re-runs the procedural texture generators with the image so the logo reads as
+  // part of the surface (felt fibers cross over it, skate scratches cross over it).
+  applyLogoImage(image) {
+    if (!image) return;
+    this._logoImage = image;
+
+    const newFelt = feltTexture({}, image);
+    const newFeltBump = bumpFrom(newFelt);
+    if (this._feltMat.map) this._feltMat.map.dispose();
+    if (this._feltMat.bumpMap) this._feltMat.bumpMap.dispose();
+    this._feltMat.map = newFelt;
+    this._feltMat.bumpMap = newFeltBump;
+    this._feltMat.needsUpdate = true;
+
+    const newIce = iceTexture({}, image);
+    const newIceBump = bumpFrom(newIce);
+    if (this._iceMat.map) this._iceMat.map.dispose();
+    if (this._iceMat.bumpMap) this._iceMat.bumpMap.dispose();
+    this._iceMat.map = newIce;
+    this._iceMat.bumpMap = newIceBump;
+    this._iceMat.needsUpdate = true;
   }
 
   syncDookieZones(zones) {

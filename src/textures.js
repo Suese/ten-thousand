@@ -1,5 +1,40 @@
 import * as THREE from 'three';
 
+// Draw an image centered on a 2D canvas, scaled to fit a target box and preserving aspect.
+// Returns the rect it occupied for callers that want to layer effects over it.
+function drawLogoCentered(ctx, image, canvasW, canvasH, opts = {}) {
+  if (!image || !image.width) return null;
+  const fraction = opts.fraction ?? 0.55;
+  const opacity = opts.opacity ?? 0.55;
+  const composite = opts.composite ?? 'source-over';
+  const tint = opts.tint;
+
+  const targetSize = Math.min(canvasW, canvasH) * fraction;
+  const aspect = image.width / image.height;
+  let w, h;
+  if (aspect >= 1) { w = targetSize; h = targetSize / aspect; }
+  else             { h = targetSize; w = targetSize * aspect; }
+  const x = (canvasW - w) / 2;
+  const y = (canvasH - h) / 2;
+
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.globalCompositeOperation = composite;
+  ctx.drawImage(image, x, y, w, h);
+  ctx.restore();
+
+  if (tint) {
+    ctx.save();
+    ctx.globalAlpha = opacity * 0.5;
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.fillStyle = tint;
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
+  }
+
+  return { x, y, w, h };
+}
+
 // Procedural wood texture for the table rim. Vertical grain with knots.
 export function woodTexture(opts = {}) {
   const w = opts.width ?? 512;
@@ -65,8 +100,10 @@ export function woodTexture(opts = {}) {
 }
 
 // Procedural felt texture for the table surface — fine fiber speckle.
-export function feltTexture(opts = {}) {
-  const w = opts.width ?? 1024;
+// Pass `logoImage` (HTMLImageElement) to bake a logo into the felt itself.
+// Fibers drawn AFTER the logo make it look woven into the felt fabric.
+export function feltTexture(opts = {}, logoImage = null) {
+  const w = opts.width ?? 1408;
   const h = opts.height ?? 1024;
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -81,29 +118,161 @@ export function feltTexture(opts = {}) {
   ctx.fillStyle = vign;
   ctx.fillRect(0, 0, w, h);
 
-  // Random short fiber strokes (the "felt fluff")
+  // First pass of fibers — denser background under any logo so it reads as part of the felt.
   const palette = ['#0a2e1a', '#103a22', '#1a5535', '#0f4426', '#072216'];
-  for (let i = 0; i < 18000; i++) {
-    const x = Math.random() * w;
-    const y = Math.random() * h;
-    const len = 1 + Math.random() * 3;
-    const ang = Math.random() * Math.PI * 2;
-    ctx.strokeStyle = palette[(Math.random() * palette.length) | 0] + 'cc';
-    ctx.lineWidth = 0.6 + Math.random() * 0.6;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
-    ctx.stroke();
+  const drawFibers = (count) => {
+    for (let i = 0; i < count; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      const len = 1 + Math.random() * 3;
+      const ang = Math.random() * Math.PI * 2;
+      ctx.strokeStyle = palette[(Math.random() * palette.length) | 0] + 'cc';
+      ctx.lineWidth = 0.6 + Math.random() * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+      ctx.stroke();
+    }
+  };
+  drawFibers(15000);
+
+  // Logo bakes here — multiply-blend so it darkens the felt where it's drawn,
+  // tinted toward the felt green so it doesn't fight the surface.
+  if (logoImage) {
+    drawLogoCentered(ctx, logoImage, w, h, {
+      fraction: 0.55,
+      opacity: 0.7,
+      composite: 'multiply',
+    });
+    drawLogoCentered(ctx, logoImage, w, h, {
+      fraction: 0.55,
+      opacity: 0.18,
+      composite: 'screen',
+    });
   }
 
+  // Second pass of fibers — drawn ON TOP of the logo so fibers cross through it,
+  // selling the "embroidered into the felt" look.
+  drawFibers(15000);
+
   // Faint scratchy dust
-  for (let i = 0; i < 3000; i++) {
+  for (let i = 0; i < 4000; i++) {
     ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.025})`;
     ctx.fillRect(Math.random() * w, Math.random() * h, 1, 1);
   }
 
   const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.anisotropy = 8;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Procedural scratched-ice texture. Pale blue base + curving skate scratches + cracks.
+// Pass `logoImage` (HTMLImageElement) to bake a logo into the ice — scratches will
+// cross over it for that "frozen embedded" look.
+export function iceTexture(opts = {}, logoImage = null) {
+  const w = opts.width ?? 1408;
+  const h = opts.height ?? 1024;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+
+  // Base — pale icy gradient
+  const grad = ctx.createRadialGradient(w/2, h/2, w*0.1, w/2, h/2, w*0.7);
+  grad.addColorStop(0, '#dbecff');
+  grad.addColorStop(0.5, '#bcdcfb');
+  grad.addColorStop(1, '#92bbe8');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Mottled tint — simulates uneven freeze
+  for (let i = 0; i < 60; i++) {
+    const x = Math.random() * w;
+    const y = Math.random() * h;
+    const r = 30 + Math.random() * 90;
+    const g = ctx.createRadialGradient(x, y, 1, x, y, r);
+    g.addColorStop(0, `rgba(255,255,255,${0.04 + Math.random() * 0.08})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Bake the logo here — overlay-blend so it tints with the ice, then scratches cross it.
+  if (logoImage) {
+    drawLogoCentered(ctx, logoImage, w, h, {
+      fraction: 0.55,
+      opacity: 0.55,
+      composite: 'overlay',
+    });
+    drawLogoCentered(ctx, logoImage, w, h, {
+      fraction: 0.55,
+      opacity: 0.25,
+      composite: 'multiply',
+    });
+  }
+
+  // Long curving skate scratches — chains of slightly drifting line segments
+  const scratchCount = 120;
+  for (let i = 0; i < scratchCount; i++) {
+    const x0 = Math.random() * w;
+    const y0 = Math.random() * h;
+    const len = 30 + Math.random() * 280;
+    let x = x0, y = y0;
+    const baseAng = Math.random() * Math.PI * 2;
+    let ang = baseAng;
+    const opacity = 0.18 + Math.random() * 0.45;
+    ctx.strokeStyle = `rgba(255,255,255,${opacity})`;
+    ctx.lineWidth = 0.4 + Math.random() * 1.4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    let traveled = 0;
+    while (traveled < len) {
+      const step = 6 + Math.random() * 12;
+      ang += (Math.random() - 0.5) * 0.18;
+      x += Math.cos(ang) * step;
+      y += Math.sin(ang) * step;
+      ctx.lineTo(x, y);
+      traveled += step;
+    }
+    ctx.stroke();
+
+    // A few have a fine darker shadow alongside (depth)
+    if (Math.random() < 0.35) {
+      ctx.strokeStyle = `rgba(40,80,120,${opacity * 0.4})`;
+      ctx.lineWidth = 0.4;
+      ctx.stroke();
+    }
+  }
+
+  // Hairline cracks — short jagged lines
+  for (let i = 0; i < 60; i++) {
+    let x = Math.random() * w;
+    let y = Math.random() * h;
+    const segs = 3 + Math.floor(Math.random() * 4);
+    ctx.strokeStyle = `rgba(255,255,255,${0.25 + Math.random() * 0.4})`;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let s = 0; s < segs; s++) {
+      x += (Math.random() - 0.5) * 30;
+      y += (Math.random() - 0.5) * 30;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // Speckle dust
+  for (let i = 0; i < 4500; i++) {
+    ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.05})`;
+    ctx.fillRect(Math.random() * w, Math.random() * h, 1, 1);
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.anisotropy = 8;
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;

@@ -10,33 +10,45 @@ const FACE_AXES = [
   new THREE.Vector3( 0, 0,-1),
 ];
 
-const RED = '#c8102e';      // cherry casino red
-const RED_DARK = '#8b0a1f';
-const WHITE = '#fafafa';
+const SCHEMES = {
+  red: {
+    bgInner: '#d8243f', bgOuter: '#c8102e',
+    pipInner: '#ffffff', pipMid: '#fafafa', pipOuter: '#cfcfcf',
+    pipHighlight: 'rgba(255,255,255,0.6)',
+    pipShadow: 'rgba(0,0,0,0.3)',
+    grain: 'rgba(255,255,255,0.04)',
+  },
+  gold: {
+    bgInner: '#ffe88a', bgOuter: '#c89a1c',
+    pipInner: '#2a1700', pipMid: '#1a0e00', pipOuter: '#0f0800',
+    pipHighlight: 'rgba(255,224,128,0.45)',
+    pipShadow: 'rgba(0,0,0,0.55)',
+    grain: 'rgba(255,255,255,0.05)',
+  },
+};
 
-function pipTexture(value) {
+function pipTexture(value, schemeName = 'red') {
+  const scheme = SCHEMES[schemeName] || SCHEMES.red;
   const size = 256;
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const ctx = c.getContext('2d');
 
-  // Red gradient background for slight depth
+  // Background
   const grad = ctx.createRadialGradient(size/2, size/2, 20, size/2, size/2, size*0.85);
-  grad.addColorStop(0, '#d8243f');
-  grad.addColorStop(1, RED);
+  grad.addColorStop(0, scheme.bgInner);
+  grad.addColorStop(1, scheme.bgOuter);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
 
-  // Subtle inner shadow / vignette for depth
   const vign = ctx.createRadialGradient(size/2, size/2, size*0.3, size/2, size/2, size*0.75);
   vign.addColorStop(0, 'rgba(0,0,0,0)');
   vign.addColorStop(1, 'rgba(0,0,0,0.18)');
   ctx.fillStyle = vign;
   ctx.fillRect(0, 0, size, size);
 
-  // Tiny grain
   for (let i = 0; i < 400; i++) {
-    ctx.fillStyle = `rgba(255,255,255,${Math.random()*0.04})`;
+    ctx.fillStyle = scheme.grain.replace(/[\d.]+\)/, m => (Math.random() * parseFloat(m)).toFixed(3) + ')');
     ctx.fillRect(Math.random()*size, Math.random()*size, 1, 1);
   }
 
@@ -49,24 +61,20 @@ function pipTexture(value) {
     6: [[0.27, 0.27], [0.73, 0.27], [0.27, 0.5], [0.73, 0.5], [0.27, 0.73], [0.73, 0.73]],
   };
 
-  // Pip with subtle highlight
   const drawPip = (cx, cy, r) => {
-    // shadow ring
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillStyle = scheme.pipShadow;
     ctx.beginPath();
     ctx.arc(cx + 1, cy + 2, r, 0, Math.PI * 2);
     ctx.fill();
-    // main white
     const pg = ctx.createRadialGradient(cx - r*0.3, cy - r*0.3, 1, cx, cy, r);
-    pg.addColorStop(0, '#ffffff');
-    pg.addColorStop(0.7, WHITE);
-    pg.addColorStop(1, '#cfcfcf');
+    pg.addColorStop(0, scheme.pipInner);
+    pg.addColorStop(0.7, scheme.pipMid);
+    pg.addColorStop(1, scheme.pipOuter);
     ctx.fillStyle = pg;
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
-    // tiny shine
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillStyle = scheme.pipHighlight;
     ctx.beginPath();
     ctx.arc(cx - r*0.35, cy - r*0.35, r*0.3, 0, Math.PI * 2);
     ctx.fill();
@@ -215,29 +223,36 @@ function createChamferedDieGeometry(size = 1, chamfer = 0.08) {
   return g;
 }
 
-export function createDieMesh() {
-  const geom = createChamferedDieGeometry(1, 0.09);
-
-  // 0..5: face textures, 6: chamfer body color
+function makeDieMaterials(scheme) {
+  const isGold = scheme === 'gold';
   const faceMats = FACE_VALUES.map(v => new THREE.MeshPhysicalMaterial({
-    map: pipTexture(v),
-    roughness: 0.32,
-    metalness: 0.0,
+    map: pipTexture(v, scheme),
+    roughness: isGold ? 0.22 : 0.32,
+    metalness: isGold ? 0.85 : 0.0,
     clearcoat: 0.45,
-    clearcoatRoughness: 0.18,
+    clearcoatRoughness: isGold ? 0.12 : 0.18,
     sheen: 0.1,
     sheenColor: new THREE.Color(0xffffff),
   }));
   const bodyMat = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color(RED),
-    roughness: 0.35,
-    metalness: 0.0,
-    clearcoat: 0.5,
-    clearcoatRoughness: 0.2,
+    color: new THREE.Color(isGold ? '#d4a017' : '#c8102e'),
+    roughness: isGold ? 0.22 : 0.35,
+    metalness: isGold ? 0.85 : 0.0,
+    clearcoat: 0.55,
+    clearcoatRoughness: isGold ? 0.12 : 0.2,
+    emissive: new THREE.Color(isGold ? '#3a2400' : '#000000'),
+    emissiveIntensity: isGold ? 0.35 : 1,
   });
+  return [...faceMats, bodyMat];
+}
 
-  const materials = [...faceMats, bodyMat];
-  const mesh = new THREE.Mesh(geom, materials);
+export function createDieMesh() {
+  const geom = createChamferedDieGeometry(1, 0.09);
+  const redMats = makeDieMaterials('red');
+  const goldMats = makeDieMaterials('gold');
+  const mesh = new THREE.Mesh(geom, redMats);
+  mesh.userData.materialsRed = redMats;
+  mesh.userData.materialsGold = goldMats;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;

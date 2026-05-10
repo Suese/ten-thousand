@@ -10,6 +10,16 @@ import { ITEMS } from './items.js';
 const scene = new Scene(document.getElementById('canvas-root'));
 const sfx = new SoundFX();
 
+// Optional logo — drop a PNG at ./logo.png and it'll be baked INTO the felt and ice
+// textures themselves (fibers/scratches cross over it). Failure to load is silent.
+{
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => scene.applyLogoImage(img);
+  img.onerror = () => {/* no logo present, silent */};
+  img.src = './logo.png';
+}
+
 // Browsers block audio until a user gesture — wake on first interaction.
 const wakeAudio = () => { sfx.resume(); window.removeEventListener('pointerdown', wakeAudio); window.removeEventListener('keydown', wakeAudio); };
 window.addEventListener('pointerdown', wakeAudio);
@@ -142,6 +152,11 @@ ui.bindShop({
     if (item?.needsAim === 'point') {
       enterAimMode(itemId, 'point', `${item.icon} Click on the table to throw`);
     } else if (item?.needsAim === 'die') {
+      // Weighted before any roll: no dice are on the table to aim at — pick at random.
+      if (itemId === 'weighted' && currentState?.phase === 'awaiting_roll') {
+        sendAction({ name: 'use_item', itemId });
+        return;
+      }
       const hint =
         itemId === 'weighted'
           ? `${item.icon} Click the die to weight toward 1`

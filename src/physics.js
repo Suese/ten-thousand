@@ -110,20 +110,28 @@ export class DicePhysics {
 
   setIceRink(on) {
     this.iceRink = !!on;
-    // Drop friction to almost zero, bump restitution so dice glance off walls,
-    // and slash damping so the dice keep sliding/spinning instead of grinding to a halt.
-    this.world.defaultContactMaterial.friction = on ? 0.015 : this._normalFriction;
-    this.world.defaultContactMaterial.restitution = on ? 0.55 : 0.22;
+    // Slick — almost no contact friction, bouncy off walls, no velocity decay.
+    this.world.defaultContactMaterial.friction = on ? 0.002 : this._normalFriction;
+    this.world.defaultContactMaterial.restitution = on ? 0.72 : 0.22;
     for (const b of this.bodies) {
       b.linearDamping = on ? 0.0 : 0.08;
-      b.angularDamping = on ? 0.005 : 0.12;
-      b.sleepSpeedLimit = on ? 0.04 : 0.15;
-      b.sleepTimeLimit = on ? 1.2 : 0.4;
+      b.angularDamping = on ? 0.0 : 0.12;
+      b.sleepSpeedLimit = on ? 0.02 : 0.15;
+      b.sleepTimeLimit = on ? 2.0 : 0.4;
     }
-    // If dice are mid-flight or just landed, wake them so the slip applies right away.
     if (on) {
+      // If dice were already settled, give them a tiny shove so the slip is visible.
       for (const b of this.bodies) {
-        if (b.position.y > -1) b.wakeUp();
+        if (b.position.y > -1) {
+          b.wakeUp();
+          if (b.velocity.length() < 0.05 && b.position.y < 1.5) {
+            b.velocity.set(
+              (Math.random() - 0.5) * 1.2,
+              0,
+              (Math.random() - 0.5) * 1.2,
+            );
+          }
+        }
       }
     }
   }
