@@ -17,7 +17,7 @@ export const ITEMS = {
   portable_hole: {
     name: 'Portable Hole',
     icon: '🕳️',
-    cost: 250,
+    cost: 500,
     desc: "Suck a random un-locked die into the void. It comes back after one roll.",
     when: 'anytime',
   },

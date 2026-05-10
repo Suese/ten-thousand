@@ -1,5 +1,6 @@
 import { evaluateKeep } from './rules.js';
 import { ITEMS, isUsable } from './items.js';
+import { colorForPlayer } from './colors.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -145,7 +146,7 @@ export function renderGameState(state, myId) {
   const phase = state.phase;
   const isMyTurn = state.currentPlayerId === myId;
 
-  // Scoreboard
+  // Scoreboard — each player named in their assigned color
   const sb = els.scoreboard();
   const sig = JSON.stringify({ p: state.players.map(p => p.id + p.name), s: state.totalScores, c: state.currentPlayerId });
   if (sig !== lastScoreboardSig) {
@@ -156,6 +157,8 @@ export function renderGameState(state, myId) {
       row.className = 'score-row' + (p.id === state.currentPlayerId ? ' active' : '');
       const name = document.createElement('span');
       name.textContent = p.name + (p.id === myId ? ' (you)' : '');
+      name.style.color = colorForPlayer(state, p.id);
+      name.style.fontWeight = '700';
       const pts = document.createElement('span');
       pts.className = 'pts';
       pts.textContent = state.totalScores[p.id] ?? 0;
@@ -165,30 +168,22 @@ export function renderGameState(state, myId) {
     }
   }
 
-  // Turn banner — always shows whose turn it is + their unbanked total so the
-  // risk of busting is constantly visible.
+  // Turn banner — minimalist: colored player name + their current unbanked total. e.g. "Dan +100"
   const banner = els.turnBanner();
   let bannerText = '';
   if (phase === 'opening_roll' || (phase === 'rolling' && state.openingActiveId)) {
-    const name = state.players.find(p => p.id === state.openingActiveId)?.name || '...';
-    bannerText = `<span class="banner-name">OPENING ROLL</span> <span class="banner-status">${name}</span>`;
+    const opener = state.players.find(p => p.id === state.openingActiveId);
+    const c = colorForPlayer(state, state.openingActiveId);
+    bannerText = `<span class="banner-name" style="color:${c}">${opener?.name || '...'}</span>`;
   } else if (phase === 'game_over') {
     bannerText = `<span class="banner-name">GAME OVER</span>`;
+  } else if (phase === 'busted') {
+    bannerText = `<span class="banner-bust">BUST!</span>`;
   } else {
     const player = state.players.find(p => p.id === state.currentPlayerId);
-    const playerLabel = isMyTurn ? 'YOUR TURN' : (player ? `${player.name.toUpperCase()}'S TURN` : '...');
-    let status = '';
-    if (phase === 'awaiting_roll')      status = isMyTurn ? 'roll the dice' : 'thinking…';
-    else if (phase === 'rolling')       status = 'rolling…';
-    else if (phase === 'awaiting_keep') status = isMyTurn ? 'pick scoring dice' : 'picking dice';
-    else if (phase === 'busted')        status = 'BUST!';
-
-    bannerText = `<span class="banner-name">${playerLabel}</span>`;
-    if (status) bannerText += ` <span class="banner-status">${status}</span>`;
-
+    const c = colorForPlayer(state, state.currentPlayerId);
     const tp = state.turnPoints || 0;
-    const dimClass = tp === 0 ? ' dim' : '';
-    bannerText += ` <span class="turn-pts${dimClass}">+${tp} to bank</span>`;
+    bannerText = `<span class="banner-name" style="color:${c}">${player?.name || '...'}</span> <span class="turn-pts">+${tp}</span>`;
   }
   banner.innerHTML = bannerText;
 
@@ -287,29 +282,27 @@ export function renderShop(state, myId) {
   const grid = els.shopGrid();
   grid.innerHTML = '';
   const myInv = (state?.inventories?.[myId]) || {};
-  for (const [id, item] of Object.entries(ITEMS)) {
-    const card = document.createElement('div');
-    card.className = 'shop-card';
+  // Sort items cheapest-first
+  const items = Object.entries(ITEMS).sort((a, b) => a[1].cost - b[1].cost);
+
+  for (const [id, item] of items) {
     const owned = myInv[id] || 0;
     const canAfford = balance >= item.cost;
+    const card = document.createElement('button');
+    card.className = 'shop-card' + (canAfford ? ' available' : ' broke');
+    card.disabled = !canAfford;
+    card.title = item.desc; // hover tooltip retains description
     card.innerHTML = `
       <div class="icon">${item.icon}</div>
       <div class="name">${item.name}</div>
-      <div class="desc">${item.desc}</div>
-      <div class="footer">
-        <span class="cost">${item.cost}</span>
-        ${owned > 0 ? `<span class="own">×${owned} owned</span>` : ''}
-        <button data-buy="${id}" ${canAfford ? '' : 'disabled'}>Buy</button>
-      </div>
+      <div class="cost">${item.cost}</div>
+      ${owned > 0 ? `<div class="own">×${owned}</div>` : ''}
     `;
+    card.addEventListener('click', () => {
+      _shopHandlers?.onPurchase?.(id);
+    });
     grid.appendChild(card);
   }
-  // Wire buy buttons (re-bound each render because innerHTML wipes them)
-  grid.querySelectorAll('button[data-buy]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      _shopHandlers?.onPurchase?.(btn.dataset.buy);
-    });
-  });
 }
 
 export function renderInventory(state, myId) {

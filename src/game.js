@@ -1,6 +1,7 @@
 import { DicePhysics } from './physics.js';
 import { evaluateKeep, rollHasScore } from './rules.js';
 import { ITEMS } from './items.js';
+import { MAX_PLAYERS } from './colors.js';
 
 const WIN_SCORE = 10000;
 const DOOKIE_DURATION_MS = 30000;
@@ -196,10 +197,10 @@ export class GameRoom {
       }
       case 'dookie': {
         // Shotgun-spread splatter: 1 main splotch where you aimed + 6 random outliers.
-        let cx = (params && typeof params.x === 'number') ? params.x : (-3 + Math.random() * 6);
-        let cz = (params && typeof params.z === 'number') ? params.z : (-2 + Math.random() * 4);
-        cx = Math.max(-6.5, Math.min(6.5, cx));
-        cz = Math.max(-4.5, Math.min(4.5, cz));
+        let cx = (params && typeof params.x === 'number') ? params.x : (-4.5 + Math.random() * 9);
+        let cz = (params && typeof params.z === 'number') ? params.z : (-3 + Math.random() * 6);
+        cx = Math.max(-9.75, Math.min(9.75, cx));
+        cz = Math.max(-6.75, Math.min(6.75, cz));
         const untilTs = Date.now() + DOOKIE_DURATION_MS;
         const splotches = [];
         splotches.push({ x: cx, z: cz, r: 0.85 + Math.random() * 0.25, untilTs });
@@ -270,6 +271,10 @@ export class GameRoom {
 
   addPlayer(id, name) {
     if (this.players.find(p => p.id === id)) return false;
+    if (this.players.length >= MAX_PLAYERS) {
+      this.emitEvent({ type: 'log', text: `Game is full (${MAX_PLAYERS} max).`, kind: 'reject' });
+      return false;
+    }
     name = (name || 'Player').slice(0, 16);
     this.players.push({ id, name });
     this.totalScores[id] = 0;

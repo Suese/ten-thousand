@@ -275,41 +275,30 @@ button.primary:hover:not(:disabled) {
 
 #turn-banner {
   position: absolute;
-  top: 16px;
+  top: 18px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(15, 19, 28, 0.85);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 224, 122, 0.4);
-  border-radius: 10px;
-  padding: 12px 22px;
-  font-size: 15px;
-  color: #fff;
-  box-shadow: 0 0 18px rgba(255, 200, 60, 0.18);
+  padding: 4px 8px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85);
+  white-space: nowrap;
+}
+#turn-banner .banner-name {
+  font-weight: 800;
 }
 #turn-banner .turn-pts {
   color: #ffe07a;
   font-weight: 700;
   margin-left: 10px;
-  text-shadow: 0 0 8px rgba(255, 224, 122, 0.6);
+  text-shadow: 0 0 12px rgba(255, 224, 122, 0.6), 0 2px 8px rgba(0,0,0,0.95);
 }
-#turn-banner .turn-pts.dim {
-  color: #6c7488;
-  text-shadow: none;
-  font-weight: 500;
-}
-#turn-banner .banner-name {
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  font-size: 16px;
-}
-#turn-banner .banner-status {
-  color: #b8c1d4;
-  font-size: 13px;
-  font-weight: 400;
-  margin-left: 6px;
-  text-transform: lowercase;
-  font-style: italic;
+#turn-banner .banner-bust {
+  color: #ff5c72;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  text-shadow: 0 0 14px rgba(255, 80, 110, 0.8), 0 2px 8px rgba(0,0,0,0.95);
 }
 #turn-banner.bust {
   border-color: #ff4d68;
@@ -344,7 +333,7 @@ button.primary:hover:not(:disabled) {
 
 #action-bar {
   position: absolute;
-  bottom: 24px;
+  bottom: 140px;
   left: 50%;
   transform: translateX(-50%);
   padding: 14px 18px;
@@ -647,94 +636,138 @@ button.primary:hover:not(:disabled) {
   gap: 12px;
   margin-top: 14px;
 }
+/* Shop card — entire card is the buy button. Flashy casino styling. */
 .shop-card {
-  background: #0e1219;
-  border: 1px solid #2a3142;
-  border-radius: 10px;
-  padding: 14px;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, #2a1340 0%, #0a0512 100%);
+  border: 2px solid #ffd400;
+  border-radius: 16px;
+  padding: 22px 12px 14px;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
-  transition: border-color 0.15s, transform 0.05s;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.2s, border-color 0.2s;
+  box-shadow: 0 0 14px rgba(255, 200, 60, 0.3), inset 0 0 14px rgba(255, 200, 60, 0.1);
+  font-family: inherit;
+  color: #fff;
 }
-.shop-card:hover {
-  border-color: #ffe07a;
+.shop-card:hover:not(:disabled) {
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: 0 0 30px rgba(255, 220, 120, 0.75), inset 0 0 18px rgba(255, 200, 60, 0.25);
+  border-color: #fff7c2;
+}
+.shop-card:active:not(:disabled) { transform: translateY(0) scale(1.0); }
+.shop-card.broke {
+  border-color: #3a3340;
+  background: linear-gradient(180deg, #181222 0%, #0a0510 100%);
+  box-shadow: none;
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .shop-card .icon {
-  font-size: 32px;
+  font-size: 56px;
   line-height: 1;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.7));
 }
 .shop-card .name {
-  font-weight: 700;
-  font-size: 15px;
-}
-.shop-card .desc {
-  font-size: 12px;
-  color: #b8c1d4;
-  line-height: 1.4;
-  flex: 1;
-}
-.shop-card .footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 4px;
+  font-weight: 800;
+  font-size: 13px;
+  color: #ffe07a;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-shadow: 0 0 6px rgba(255, 200, 60, 0.5);
 }
 .shop-card .cost {
-  color: #ffe07a;
-  font-weight: 700;
+  font-size: 26px;
+  font-weight: 900;
+  background: linear-gradient(180deg, #fff7c2 0%, #ffd400 60%, #ff9b3d 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 12px rgba(255, 200, 60, 0.5);
   font-variant-numeric: tabular-nums;
 }
 .shop-card .own {
-  font-size: 11px;
-  color: #7cf3a0;
-}
-.shop-card button {
+  position: absolute;
+  top: 8px; right: 8px;
+  background: linear-gradient(180deg, #66e090, #2bbd5e);
+  color: #062a13;
+  border-radius: 6px;
+  padding: 2px 8px;
   font-size: 12px;
-  padding: 6px 10px;
+  font-weight: 800;
+  box-shadow: 0 0 8px rgba(80, 240, 130, 0.6);
+}
+/* Diagonal shimmer streak that sweeps across affordable cards */
+.shop-card.available::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(45deg,
+    transparent 35%,
+    rgba(255, 230, 150, 0.10) 50%,
+    transparent 65%);
+  pointer-events: none;
+  animation: card-shimmer 4s linear infinite;
+}
+@keyframes card-shimmer {
+  0%   { transform: translate(-25%, -25%); }
+  100% { transform: translate(25%, 25%); }
 }
 
-/* Inventory tray — right side, stacked vertically below the shop button */
+/* Inventory tray — bottom of screen, horizontal row, BIG icons */
 #inventory {
   position: fixed;
-  right: 16px;
-  top: 64px;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-direction: row;
+  gap: 12px;
   z-index: 6;
   pointer-events: auto;
 }
 #inventory.hidden { display: none; }
 .inv-item {
-  background: rgba(15, 19, 28, 0.92);
-  border: 1px solid #2a3142;
-  border-radius: 10px;
-  padding: 6px 10px;
+  background: linear-gradient(180deg, rgba(40, 24, 56, 0.92), rgba(15, 6, 22, 0.92));
+  border: 2px solid #ffd400;
+  border-radius: 16px;
+  padding: 10px 16px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 12px;
+  font-size: 16px;
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.05s, opacity 0.15s;
-  text-shadow: 0 2px 4px rgba(0,0,0,0.7);
+  transition: border-color 0.15s, transform 0.1s, opacity 0.15s, box-shadow 0.2s;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.85);
+  box-shadow: 0 0 14px rgba(255, 200, 60, 0.3);
 }
-.inv-item .ic { font-size: 22px; line-height: 1; }
-.inv-item .ct { font-weight: 700; color: #ffe07a; }
-.inv-item:hover { border-color: #ffe07a; }
+.inv-item .ic { font-size: 44px; line-height: 1; }
+.inv-item .ct { font-weight: 800; color: #ffe07a; font-size: 20px; font-variant-numeric: tabular-nums; }
+.inv-item:hover:not(.disabled) {
+  border-color: #fff7c2;
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: 0 0 26px rgba(255, 220, 120, 0.7);
+}
 .inv-item.disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
-  border-color: #2a3142;
+  border-color: #444;
+  box-shadow: none;
 }
 .inv-item.usable {
   border-color: #ffe07a;
-  box-shadow: 0 0 12px rgba(255, 200, 60, 0.35);
-  animation: inv-pulse 1.6s ease-in-out infinite alternate;
+  animation: inv-pulse 1.4s ease-in-out infinite alternate;
 }
 @keyframes inv-pulse {
-  0% { box-shadow: 0 0 8px rgba(255, 200, 60, 0.2); }
-  100% { box-shadow: 0 0 18px rgba(255, 200, 60, 0.55); }
+  0%   { box-shadow: 0 0 14px rgba(255, 200, 60, 0.35); }
+  100% { box-shadow: 0 0 28px rgba(255, 220, 120, 0.85); }
 }
 
 /* Visual selection ring colors per player are coordinated with three.js;

@@ -23,10 +23,10 @@ export class DicePhysics {
       b.quaternion.copy(q);
       this.world.addBody(b);
     };
-    addWall(0, -5,  0,  1);
-    addWall(0,  5,  0, -1);
-    addWall(-7, 0,  1,  0);
-    addWall( 7, 0, -1,  0);
+    addWall(0, -7.5,   0,  1);
+    addWall(0,  7.5,   0, -1);
+    addWall(-10.5, 0,  1,  0);
+    addWall( 10.5, 0, -1,  0);
 
     this.bodies = [];
     for (let i = 0; i < 5; i++) {

@@ -1,8 +1,4 @@
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createDieMesh } from './dice.js';
 import { woodTexture, feltTexture, iceTexture, bumpFrom } from './textures.js';
@@ -166,8 +162,8 @@ export class Scene {
       pmrem.dispose();
     }
 
-    this.camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 100);
-    this.camera.position.set(0, 9.5, 8.5);
+    this.camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 200);
+    this.camera.position.set(0, 14.25, 12.75);
     this.camera.lookAt(0, 0, 0);
 
     // Subtle ambient hemisphere — cool sky, warm ground bounce
@@ -179,12 +175,12 @@ export class Scene {
     key.position.set(4, 12, 4);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    key.shadow.camera.left = -10;
-    key.shadow.camera.right = 10;
-    key.shadow.camera.top = 10;
-    key.shadow.camera.bottom = -10;
+    key.shadow.camera.left = -14;
+    key.shadow.camera.right = 14;
+    key.shadow.camera.top = 14;
+    key.shadow.camera.bottom = -14;
     key.shadow.camera.near = 1;
-    key.shadow.camera.far = 30;
+    key.shadow.camera.far = 40;
     key.shadow.bias = -0.0004;
     key.shadow.radius = 3;
     this.scene.add(key);
@@ -209,10 +205,12 @@ export class Scene {
     neonBlue.position.set(7, 1.5, 4);
     this.scene.add(neonBlue);
 
-    // ----- Table felt (texture re-baked when a logo is provided) -----
+    // ----- Table felt — slightly larger than the rim's inner hole so it tucks
+    // under the wood, and depth-offset so the dice (resting at y=0) don't z-fight.
+    // Table is 1.5x the original scale.
     const felt = feltTexture();
     const feltBump = bumpFrom(felt);
-    const tableGeom = new THREE.PlaneGeometry(14, 10);
+    const tableGeom = new THREE.PlaneGeometry(22.5, 16.5);
     const tableMat = new THREE.MeshPhysicalMaterial({
       map: felt,
       bumpMap: feltBump,
@@ -222,39 +220,59 @@ export class Scene {
       sheen: 0.4,
       sheenColor: new THREE.Color(0x2a7048),
       sheenRoughness: 0.85,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
     });
     const table = new THREE.Mesh(tableGeom, tableMat);
     table.rotation.x = -Math.PI / 2;
+    table.position.y = -0.002;
     table.receiveShadow = true;
     this.scene.add(table);
 
-    // ----- Wooden rim — bigger, chamfered -----
+    // ----- Wooden rim — single picture-frame mesh, beveled, no z-fighting -----
     const wood = woodTexture();
-    const woodLong = wood.clone();
-    woodLong.repeat.set(3, 0.4);
-    const woodShort = wood.clone();
-    woodShort.repeat.set(2.4, 0.4);
-    const rimMatLong = new THREE.MeshPhysicalMaterial({
-      map: woodLong, bumpMap: bumpFrom(woodLong), bumpScale: 0.05,
-      roughness: 0.5, metalness: 0.06, clearcoat: 0.45, clearcoatRoughness: 0.45,
+    wood.wrapS = wood.wrapT = THREE.RepeatWrapping;
+    wood.repeat.set(2, 2);
+    const rimMat = new THREE.MeshPhysicalMaterial({
+      map: wood,
+      bumpMap: bumpFrom(wood),
+      bumpScale: 0.06,
+      roughness: 0.5, metalness: 0.06,
+      clearcoat: 0.45, clearcoatRoughness: 0.45,
     });
-    const rimMatShort = new THREE.MeshPhysicalMaterial({
-      map: woodShort, bumpMap: bumpFrom(woodShort), bumpScale: 0.05,
-      roughness: 0.5, metalness: 0.06, clearcoat: 0.45, clearcoatRoughness: 0.45,
+
+    // 1.5x the original — bigger casino table feel.
+    const FELT_W = 21, FELT_D = 15;                 // inner hole; matches play area (cannon walls)
+    const FRAME_W = 26.1, FRAME_D = 20.1;          // outer dimensions
+    const FRAME_HEIGHT = 1.05;                      // unchanged height for proportion
+    const frameShape = new THREE.Shape();
+    frameShape.moveTo(-FRAME_W / 2, -FRAME_D / 2);
+    frameShape.lineTo( FRAME_W / 2, -FRAME_D / 2);
+    frameShape.lineTo( FRAME_W / 2,  FRAME_D / 2);
+    frameShape.lineTo(-FRAME_W / 2,  FRAME_D / 2);
+    frameShape.lineTo(-FRAME_W / 2, -FRAME_D / 2);
+    const frameHole = new THREE.Path();
+    frameHole.moveTo(-FELT_W / 2, -FELT_D / 2);
+    frameHole.lineTo( FELT_W / 2, -FELT_D / 2);
+    frameHole.lineTo( FELT_W / 2,  FELT_D / 2);
+    frameHole.lineTo(-FELT_W / 2,  FELT_D / 2);
+    frameHole.lineTo(-FELT_W / 2, -FELT_D / 2);
+    frameShape.holes.push(frameHole);
+    const frameGeom = new THREE.ExtrudeGeometry(frameShape, {
+      depth: FRAME_HEIGHT,
+      bevelEnabled: true,
+      bevelThickness: 0.14,
+      bevelSize: 0.14,
+      bevelOffset: 0,
+      bevelSegments: 5,
+      curveSegments: 1,
     });
-    const addChamferedRim = (w, h, d, x, y, z, mat) => {
-      const geom = createChamferedBoxGeometry(w, h, d, 0.10);
-      const m = new THREE.Mesh(geom, mat);
-      m.position.set(x, y, z);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      this.scene.add(m);
-    };
-    // Wider (0.95) and taller (0.85) than before, with proper bevel.
-    addChamferedRim(15.0, 0.85, 0.95,  0, 0.42,  5.45, rimMatLong);
-    addChamferedRim(15.0, 0.85, 0.95,  0, 0.42, -5.45, rimMatLong);
-    addChamferedRim(0.95, 0.85, 11.9,  7.55, 0.42, 0, rimMatShort);
-    addChamferedRim(0.95, 0.85, 11.9, -7.55, 0.42, 0, rimMatShort);
+    frameGeom.rotateX(-Math.PI / 2);
+    const frame = new THREE.Mesh(frameGeom, rimMat);
+    frame.castShadow = true;
+    frame.receiveShadow = true;
+    this.scene.add(frame);
 
     // ----- Casino carpet (loaded async; placeholder dark grey until image arrives) -----
     const carpetGeom = new THREE.PlaneGeometry(60, 45);
@@ -265,7 +283,7 @@ export class Scene {
     });
     const carpet = new THREE.Mesh(carpetGeom, carpetMat);
     carpet.rotation.x = -Math.PI / 2;
-    carpet.position.y = -0.55;
+    carpet.position.y = -1.88;
     carpet.receiveShadow = true;
     this.scene.add(carpet);
     this._carpet = carpet;
@@ -329,6 +347,9 @@ export class Scene {
       clearcoatRoughness: 0.06,
       emissive: 0x1a3a55,
       emissiveIntensity: 0.12,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
     });
     this._logoImage = null;
 
@@ -338,23 +359,19 @@ export class Scene {
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
 
-    // ----- Post-processing: subtle depth of field -----
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.setPixelRatio(this.renderer.getPixelRatio());
-    this.composer.setSize(window.innerWidth, window.innerHeight);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this._bokeh = new BokehPass(this.scene, this.camera, {
-      focus: 9.0,        // distance from camera to table center
-      aperture: 0.0006,  // small aperture — gentle blur
-      maxblur: 0.012,
-    });
-    this.composer.addPass(this._bokeh);
-    this.composer.addPass(new OutputPass());
-
     // Camera target tracking (lerps toward an interest point — usually the dice cluster).
     this._camBase = this.camera.position.clone();
     this._camLook = new THREE.Vector3(0, 0, 0);
     this._camLookTarget = new THREE.Vector3(0, 0, 0);
+    // Mouse parallax — pointer position normalized to [-1, 1] on each axis.
+    this._mouseNX = 0;
+    this._mouseNY = 0;
+    this._mouseX = 0;
+    this._mouseY = 0;
+    window.addEventListener('mousemove', (e) => {
+      this._mouseNX = (e.clientX / window.innerWidth) * 2 - 1;
+      this._mouseNY = (e.clientY / window.innerHeight) * 2 - 1;
+    });
 
     window.addEventListener('resize', () => this.onResize());
     this.tickCallbacks = [];
@@ -367,7 +384,6 @@ export class Scene {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
-    if (this.composer) this.composer.setSize(window.innerWidth, window.innerHeight);
   }
 
   onTick(cb) { this.tickCallbacks.push(cb); }
@@ -548,43 +564,40 @@ export class Scene {
       this._t += dt;
       for (const cb of this.tickCallbacks) cb(dt);
 
-      // Camera tracking — very subtle pan/tilt/pitch via lookAt + zoom via FOV.
+      // Camera tracking — VERY subtle pan/tilt/pitch toward dice subject + small mouse parallax.
       this._computeSubject(this._camLookTarget);
-      this._camLook.lerp(this._camLookTarget, 0.07);
+      this._camLook.lerp(this._camLookTarget, 0.05);
 
-      // Smoothed spread drives the zoom: tighter cluster -> longer focal length.
-      const rawSpread = this._subjectSpread || 0;
-      this._spreadSmooth = (this._spreadSmooth ?? 0) + (rawSpread - (this._spreadSmooth ?? 0)) * 0.04;
+      // Smoothed mouse position
+      this._mouseX += (this._mouseNX - this._mouseX) * 0.05;
+      this._mouseY += (this._mouseNY - this._mouseY) * 0.05;
 
-      // Idle bob — gentle drift so the camera never sits perfectly still.
-      const bobX = Math.sin(this._t * 0.35) * 0.14;
-      const bobY = Math.sin(this._t * 0.25 + 1.7) * 0.07;
-      const bobZ = Math.cos(this._t * 0.22 + 0.9) * 0.16;
+      // Tiny idle bob (much reduced from before)
+      const bobX = Math.sin(this._t * 0.35) * 0.04;
+      const bobY = Math.sin(this._t * 0.25 + 1.7) * 0.025;
+      const bobZ = Math.cos(this._t * 0.22 + 0.9) * 0.04;
 
-      // Subject-following dolly: camera leans gently toward the dice cluster (tilt + pitch
-      // emerge from the lookAt below; xy/z bias here is the dolly component).
+      // Subject-following dolly: very small bias toward dice cluster.
+      const subjX = this._camLook.x * 0.018;
+      const subjY = Math.max(0, this._camLook.y) * 0.030;
+      const subjZ = this._camLook.z * 0.015;
+
+      // Mouse parallax — slight lean in the direction the cursor is.
+      const mouseShiftX = this._mouseX * 0.35;
+      const mouseShiftY = -this._mouseY * 0.18;
+
       this.camera.position.set(
-        this._camBase.x + bobX + this._camLook.x * 0.06,
-        this._camBase.y + bobY + Math.max(0, this._camLook.y) * 0.10,
-        this._camBase.z + bobZ + this._camLook.z * 0.05,
+        this._camBase.x + bobX + subjX + mouseShiftX,
+        this._camBase.y + bobY + subjY + mouseShiftY,
+        this._camBase.z + bobZ + subjZ,
       );
 
-      // Zoom: shrink FOV when dice are clustered (focused on a small subject), grow
-      // when they're spread out / mid-roll. Range is intentionally narrow (~3°).
-      const fovTarget = 41 + Math.min(3.0, this._spreadSmooth * 0.7);
-      this.camera.fov += (fovTarget - this.camera.fov) * 0.04;
-      this.camera.updateProjectionMatrix();
+      // Look-at also shifts slightly with mouse so the cursor's direction subtly leads the eye.
+      const lookX = this._camLook.x + this._mouseX * 0.35;
+      const lookZ = this._camLook.z + this._mouseY * 0.20;
+      this.camera.lookAt(lookX, this._camLook.y, lookZ);
 
-      this.camera.lookAt(this._camLook);
-
-      // Keep DoF focus on the subject distance.
-      const focusDist = this.camera.position.distanceTo(this._camLook);
-      if (this._bokeh && this._bokeh.uniforms && this._bokeh.uniforms.focus) {
-        const u = this._bokeh.uniforms.focus;
-        u.value += (focusDist - u.value) * 0.08;
-      }
-
-      this.composer.render();
+      this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);

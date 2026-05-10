@@ -5,6 +5,7 @@ import * as ui from './ui.js';
 import { SoundFX } from './audio.js';
 import { confettiBurst, coinShower, scorePopup, flashScreen, shake, centerOf } from './effects.js';
 import { ITEMS } from './items.js';
+import { colorHexForPlayer } from './colors.js';
 
 // ---- Bootstrap scene + audio ----
 const scene = new Scene(document.getElementById('canvas-root'));
@@ -348,13 +349,14 @@ function applyState(state) {
     }
 
     // Render selection rings — local set for active player (responsive),
-    // authoritative state.selection for spectators.
+    // authoritative state.selection for spectators. Color = the active player's color.
     const isMyTurn = state.currentPlayerId === myId;
+    const ringColor = colorHexForPlayer(state, state.currentPlayerId);
     if (isMyTurn) {
-      for (let i = 0; i < 5; i++) scene.setSelected(i, selection.has(i), 0xffe07a);
+      for (let i = 0; i < 5; i++) scene.setSelected(i, selection.has(i), ringColor);
     } else {
       const remoteSel = new Set(state.selection || []);
-      for (let i = 0; i < 5; i++) scene.setSelected(i, remoteSel.has(i), 0x88c8ff);
+      for (let i = 0; i < 5; i++) scene.setSelected(i, remoteSel.has(i), ringColor);
     }
 
     redrawSelection();
