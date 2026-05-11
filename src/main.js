@@ -21,10 +21,16 @@ const sfx = new SoundFX();
   img.src = './logo.png';
 }
 
-// Browsers block audio until a user gesture — wake on first interaction.
-const wakeAudio = () => { sfx.resume(); window.removeEventListener('pointerdown', wakeAudio); window.removeEventListener('keydown', wakeAudio); };
+// Browsers block audio until a user gesture, and some browsers re-suspend the
+// audio context whenever the tab loses focus. Resume on every gesture (cheap
+// no-op when already running) and on visibility change.
+const wakeAudio = () => sfx.resume();
 window.addEventListener('pointerdown', wakeAudio);
 window.addEventListener('keydown', wakeAudio);
+window.addEventListener('touchstart', wakeAudio, { passive: true });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) sfx.resume();
+});
 
 const muteBtn = document.getElementById('mute-btn');
 let muted = localStorage.getItem('diceMute') === '1';
