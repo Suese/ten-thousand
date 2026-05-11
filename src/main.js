@@ -504,6 +504,9 @@ function applyState(state) {
     const weighted = new Set(state.weightedDice || []);
     for (let i = 0; i < 5; i++) scene.setDieWeighted(i, weighted.has(i));
 
+    // Dice "in hand" during the hold-to-roll shake — hidden until thrown.
+    scene.setInHand(state.inHand || []);
+
     // Surface effects
     scene.syncDookieZones(state.dookieZones || []);
     scene.setIceRink(!!state.iceRinkActive);
@@ -565,6 +568,19 @@ function applyEvent(event) {
       scorePopup(`+${event.score}`, where.x, where.y - 60, { big });
       if (big) confettiBurst(where.x, where.y - 40, 50);
       else confettiBurst(where.x, where.y - 40, 16);
+      break;
+    }
+    case 'bonus': {
+      sfx.scoreBig();
+      const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+      scorePopup(`${event.label} +${event.score}`, cx, cy - 40, { big: true });
+      confettiBurst(cx, cy - 20, 80);
+      flashScreen('#ffd400', 0.35);
+      break;
+    }
+    case 'turn_skipped': {
+      sfx.turnSkipped();
+      flashScreen('#ff5060', 0.22);
       break;
     }
     case 'bank': {

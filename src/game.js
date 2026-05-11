@@ -103,6 +103,18 @@ export class GameRoom {
     if (this.order[this.currentIdx] !== fromId) return;
     if (this._shaking) return;
     this._shaking = true;
+    // Compute which dice are about to be rerolled and tag them "in hand" —
+    // clients will hide those meshes for the duration of the hold + pre-throw
+    // pause, then they reappear as they're physically thrown.
+    this._inHand = [];
+    for (let i = 0; i < this.diceState.length; i++) {
+      if (this.diceState[i].locked) continue;
+      if (this.activeEffects.destroyed.has(i)) continue;
+      if (this.activeEffects.hiddenNow.has(i)) continue;
+      // Selected dice are about to LOCK on commit, not be rerolled.
+      if (this.phase === 'awaiting_keep' && this.selection.includes(i)) continue;
+      this._inHand.push(i);
+    }
     this.emitState();
   }
 
@@ -439,6 +451,7 @@ export class GameRoom {
     this.selection = [];
     this.phase = 'awaiting_roll';
     this._turnTimeoutTs = Date.now() + TURN_TIMEOUT_MS;
+    this._turnRollCount = 0;
     this.physics.parkAll();
     // Clear turn-scoped item effects.
     this.activeEffects.destroyed.clear();
@@ -469,6 +482,8 @@ export class GameRoom {
   }
 
   beginRoll() {
+    this._turnRollCount = (this._turnRollCount || 0) + 1;
+    this._inHand = []; // dice leave the hand and go into the throw
     const playerId = this.order[this.currentIdx];
     const holes = (this.activeEffects.portableHole[playerId] || []).slice();
 
@@ -512,6 +527,7 @@ export class GameRoom {
       const playerId = this.order[this.currentIdx];
       this._turnTimeoutTs = null;
       this._shaking = false;
+      this.emitEvent({ type: 'turn_skipped', playerId });
       this.emitEvent({ type: 'log', text: `${this.nameOf(playerId)} ran out of time — turn skipped.`, kind: 'bust' });
       this.endTurn();
       return;
@@ -795,6 +811,25 @@ export class GameRoom {
       this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${banked}. Total ${total}.`, kind: 'bank' });
       this.checkWinAndEndTurn(byId);
     } else if (action === 'reroll') {
+      // Bonus check (only after the first roll, only on a hot-dice-bound commit).
+      if (this._turnRollCount > 1 && this.diceState.every(d => d.locked)) {
+        const counts = {};
+        for (const d of this.diceState) counts[d.value] = (counts[d.value] || 0) + 1;
+        const dist = Object.values(counts).sort((a, b) => b - a);
+        let bonus = 0, label = '';
+        if (dist.length === 1 && dist[0] === 5) {
+          bonus = 1000;
+          label = `🎉 All ${this.diceState[0].value}s!`;
+        } else if (dist.length === 2 && dist[0] === 3 && dist[1] === 2) {
+          bonus = 500;
+          label = '🏠 Full House!';
+        }
+        if (bonus) {
+          this.turnPoints += bonus;
+          this.emitEvent({ type: 'bonus', playerId: byId, score: bonus, label, turnPoints: this.turnPoints });
+          this.emitEvent({ type: 'log', text: `${label} +${bonus} bonus!`, kind: 'bank' });
+        }
+      }
       // Same pre-throw pause as requestRoll so every roll has the shake → silence → throw rhythm.
       this._shaking = false;
       this.phase = 'rolling';
@@ -900,6 +935,7 @@ export class GameRoom {
       bustPendingUntilTs: this._bustPendingTs || null,
       turnTimeoutTs: this._turnTimeoutTs || null,
       shaking: !!this._shaking,
+      inHand: (this._inHand || []).slice(),
       hiddenIndices: this._hiddenForRoll || [],
       dookieZones: this.activeEffects.dookieZones.map(z => ({ ...z })),
       iceRinkActive: this.activeEffects.iceRinkActive,

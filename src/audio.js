@@ -9,6 +9,7 @@ const OVERRIDES = {
   pluck:           'pluck',
   diceShake:       'dice_shake',
   tossDice:        'toss_dice',
+  turnSkipped:     'turn_skipped',
   diceHitMat:      'dice_mat',
   diceHitDice:     'dice_dice',
   selectDie:       'select',
@@ -323,6 +324,16 @@ export class SoundFX {
     if (this._playOverride('turnStart')) return;
     this.tone(660, 0.08, 'triangle', 0.14);
     setTimeout(() => this.tone(880, 0.12, 'triangle', 0.18), 70);
+  }
+
+  // Disappointed descending tones — turn skipped because the player ran out of time.
+  turnSkipped() {
+    if (this._playOverride('turnSkipped')) return;
+    if (!this.ctx || this.muted) return;
+    this.tone(520, 0.18, 'triangle', 0.28);
+    setTimeout(() => this.tone(390, 0.22, 'triangle', 0.28), 150);
+    setTimeout(() => this.tone(260, 0.35, 'sine', 0.25), 320);
+    setTimeout(() => this.noiseBurst(0.18, 200, 1, 0.16), 380);
   }
 
   // ---- Item-specific sound effects ----

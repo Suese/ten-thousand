@@ -1,7 +1,10 @@
 // Pure scoring logic for 10,000.
 //
-// Three of a kind: three 1s = 1000, three Ns (N>=2) = N*100.
-// Singles outside a 3-of-a-kind: 1 = 100, 5 = 50.
+// Of-a-kind values:
+//   3 of a kind: three 1s = 1000, three Ns (N>=2) = N*100.
+//   4 of a kind: double the 3-of-a-kind value (four 1s = 2000, four Ns = N*200).
+//   5 of a kind: five 1s = 5000, five Ns (N>=2) = N*500.
+// Singles outside an of-a-kind: 1 = 100, 5 = 50.
 // Hot dice: when ALL 5 dice are kept across a turn, the player rerolls all 5
 // keeping their banked turn points.
 
@@ -11,6 +14,14 @@ export function rollHasScore(values) {
   if (counts[5]) return true;
   for (const f in counts) if (counts[f] >= 3) return true;
   return false;
+}
+
+// Of-a-kind value for `count` dice all showing face `v`. Returns 0 if count < 3.
+function ofAKindValue(v, count) {
+  if (count >= 5) return v === 1 ? 5000 : v * 500;
+  if (count === 4) return v === 1 ? 2000 : v * 200;
+  if (count === 3) return v === 1 ? 1000 : v * 100;
+  return 0;
 }
 
 // Validate a player's chosen kept-subset and compute its score.
@@ -23,8 +34,9 @@ export function evaluateKeep(keptValues) {
     const v = +face;
     let c = counts[v];
     if (c >= 3) {
-      score += v === 1 ? 1000 : v * 100;
-      c -= 3;
+      // Take the of-a-kind (3, 4, or 5) as a single group.
+      score += ofAKindValue(v, c);
+      c = 0;
     }
     if (c > 0) {
       if (v === 1) score += c * 100;
@@ -44,9 +56,9 @@ export function bestPossibleScore(rolledValues) {
     const v = +face;
     let c = counts[v];
     if (c >= 3) {
-      score += v === 1 ? 1000 : v * 100;
-      kept += 3;
-      c -= 3;
+      score += ofAKindValue(v, c);
+      kept += c;
+      c = 0;
     }
     if (c > 0) {
       if (v === 1) { score += c * 100; kept += c; }

@@ -375,30 +375,44 @@ export class Scene {
     // Track table material so we can swap to ice when items activate.
     this._table = table;
     this._feltMat = tableMat;
-    const iceTex = iceTexture();
+    // Ice material — two-layer model. Base layer: ice.png from the project root
+    // (the under layer). On top: clearcoat = the slightly reflective sheen layer.
+    // Falls back to the procedural iceTexture if ice.png is missing.
+    const proceduralIce = iceTexture();
     this._iceMat = new THREE.MeshPhysicalMaterial({
-      map: iceTex,
-      bumpMap: bumpFrom(iceTex),
-      bumpScale: 0.06,
-      roughness: 0.22,
-      metalness: 0.05,
-      clearcoat: 0.95,
-      clearcoatRoughness: 0.06,
+      map: proceduralIce,
+      bumpMap: bumpFrom(proceduralIce),
+      bumpScale: 0.05,
+      roughness: 0.55,        // base layer — matte-ish ice
+      metalness: 0,
+      clearcoat: 1.0,         // over-top reflective sheen
+      clearcoatRoughness: 0.05,
       emissive: 0x1a3a55,
-      emissiveIntensity: 0.12,
+      emissiveIntensity: 0.10,
       polygonOffset: true,
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
     });
-    // Same hole-mask treatment as the felt so the portable hole cuts through
-    // whichever surface is active.
     this._iceMat.stencilWrite = true;
     this._iceMat.stencilFunc = THREE.NotEqualStencilFunc;
     this._iceMat.stencilRef = 1;
     this._iceMat.stencilFail = THREE.KeepStencilOp;
     this._iceMat.stencilZFail = THREE.KeepStencilOp;
     this._iceMat.stencilZPass = THREE.KeepStencilOp;
+
+    // Try to load ice.png as a raw Image (so we can composite a logo onto it).
+    {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        this._iceImage = img;
+        this._rebakeIce();
+      };
+      img.onerror = () => {/* keep procedural */};
+      img.src = './ice.png';
+    }
     this._logoImage = null;
+    this._iceImage = null;
 
     // Container for dookie blob meshes
     this._dookieMeshes = new Map(); // key -> mesh
@@ -439,17 +453,30 @@ export class Scene {
   setDieTransform(i, pos, quat, visible = true) {
     const m = this.dieMeshes[i];
     const offstage = pos[1] < -5;
-    m.visible = visible && !offstage;
+    const inHand = this._inHandSet && this._inHandSet.has(i);
+    m.visible = visible && !offstage && !inHand;
     m.position.set(pos[0], pos[1], pos[2]);
     m.quaternion.set(quat[0], quat[1], quat[2], quat[3]);
     const sel = this.selectionRings[i];
     sel.position.x = pos[0];
     sel.position.z = pos[2];
-    if (offstage) sel.visible = false;
+    if (offstage || inHand) sel.visible = false;
     const lock = m.userData.lockRing;
     lock.position.x = pos[0];
     lock.position.z = pos[2];
-    if (offstage) lock.visible = false;
+    if (offstage || inHand) lock.visible = false;
+  }
+
+  setInHand(indices) {
+    this._inHandSet = new Set(indices || []);
+    // Apply visibility immediately to currently-visible dice
+    for (let i = 0; i < this.dieMeshes.length; i++) {
+      if (this._inHandSet.has(i)) {
+        this.dieMeshes[i].visible = false;
+        this.selectionRings[i].visible = false;
+        this.dieMeshes[i].userData.lockRing.visible = false;
+      }
+    }
   }
 
   // Returns the screen-space [x, y] for a given 3D world point using this scene's camera.
@@ -572,9 +599,10 @@ export class Scene {
     this._table.material.needsUpdate = true;
   }
 
-  // Bake a logo image (HTMLImageElement) into both felt and ice canvas textures.
-  // Re-runs the procedural texture generators with the image so the logo reads as
-  // part of the surface (felt fibers cross over it, skate scratches cross over it).
+  // Bake a logo image (HTMLImageElement) into both surface textures. Felt is
+  // procedural so it's regenerated with the logo via feltTexture(). Ice may be
+  // either ice.png + logo (canvas composite) or procedural + logo, depending on
+  // whether ice.png has loaded yet.
   applyLogoImage(image) {
     if (!image) return;
     this._logoImage = image;
@@ -587,12 +615,73 @@ export class Scene {
     this._feltMat.bumpMap = newFeltBump;
     this._feltMat.needsUpdate = true;
 
-    const newIce = iceTexture({}, image);
-    const newIceBump = bumpFrom(newIce);
+    this._rebakeIce();
+  }
+
+  // Composes the current state of (ice image / procedural ice) with (logo tinted
+  // navy blue) into a single CanvasTexture and applies it to the ice material.
+  _rebakeIce() {
+    const NAVY = '#0b1f4a';
+    const W = 1408, H = 1024;
+
+    let tex;
+    if (this._iceImage) {
+      // Build a canvas: ice.png base + navy-tinted logo silhouette overlay.
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const ctx = c.getContext('2d');
+      // Draw ice.png stretched to the canvas (cover the table area).
+      ctx.drawImage(this._iceImage, 0, 0, W, H);
+
+      if (this._logoImage) {
+        const fraction = 0.55;
+        const opacity = 0.62;
+        const targetSize = Math.min(W, H) * fraction;
+        const aspect = this._logoImage.width / this._logoImage.height;
+        let lw, lh;
+        if (aspect >= 1) { lw = targetSize; lh = targetSize / aspect; }
+        else             { lh = targetSize; lw = targetSize * aspect; }
+        const x = (W - lw) / 2;
+        const y = (H - lh) / 2;
+
+        // Tint the logo to navy: draw into a temp canvas, then source-in fill
+        // replaces every non-transparent pixel with navy.
+        const tmp = document.createElement('canvas');
+        tmp.width = lw; tmp.height = lh;
+        const tctx = tmp.getContext('2d');
+        tctx.drawImage(this._logoImage, 0, 0, lw, lh);
+        tctx.globalCompositeOperation = 'source-in';
+        tctx.fillStyle = NAVY;
+        tctx.fillRect(0, 0, lw, lh);
+
+        // Layer it onto the ice. multiply darkens the ice where the logo is, so
+        // it reads as "frozen into the surface" rather than painted on top.
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.drawImage(tmp, x, y);
+        ctx.restore();
+        // Tiny extra darken so the logo reads even in bright areas.
+        ctx.save();
+        ctx.globalAlpha = 0.25;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(tmp, x, y);
+        ctx.restore();
+      }
+
+      tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    } else {
+      // ice.png hasn't loaded — fall back to the procedural ice with logo baked in.
+      tex = iceTexture({}, this._logoImage);
+    }
+
     if (this._iceMat.map) this._iceMat.map.dispose();
     if (this._iceMat.bumpMap) this._iceMat.bumpMap.dispose();
-    this._iceMat.map = newIce;
-    this._iceMat.bumpMap = newIceBump;
+    this._iceMat.map = tex;
+    this._iceMat.bumpMap = bumpFrom(tex);
     this._iceMat.needsUpdate = true;
   }
 

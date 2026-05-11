@@ -31,6 +31,7 @@ Game sounds
   hot_dice       Triumphant chord — all 5 dice scored, rerolling all 5.
   xx win            End-of-game winner fanfare.
   xx turn_start     "Your turn" cue at the top of a turn.
+  xx turn_skipped   "Womp womp" — player ran out of time and got auto-passed.
 
 ─────────────────────────────────────────────────────────────────────────────
 Shop item sounds
