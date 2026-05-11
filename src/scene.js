@@ -479,11 +479,14 @@ export class Scene {
     }
   }
 
-  // Screen-space [x, y] of a die's current world position. Ignores visibility
-  // so callers can capture the position right before the die is hidden.
+  // Screen-space [x, y] of a die's current world position. Returns null if
+  // the die isn't currently on the table (mesh hidden or parked off-stage at
+  // y < -5) — callers can use the null return to skip effects that wouldn't
+  // make sense for invisible dice.
   getDieScreenPos(i) {
     const m = this.dieMeshes[i];
-    if (!m) return null;
+    if (!m || !m.visible) return null;
+    if (m.position.y < -5) return null;
     return this.worldToScreen([m.position.x, m.position.y, m.position.z]);
   }
 

@@ -849,7 +849,10 @@ export class GameRoom {
       }
       this.emitEvent({ type: 'bank', playerId: byId, banked, total, indices: bankedIndices, remainingIndices });
       this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${banked}. Total ${total}.`, kind: 'bank' });
-      this.checkWinAndEndTurn(byId);
+      // Hold the dice on the table while the client plays its bank animation
+      // (coin bursts 0.25 s apart + 0.5 s pause + Q beam-out ~0.7 s).
+      const animMs = bankedIndices.length * 250 + 500 + 800;
+      setTimeout(() => this.checkWinAndEndTurn(byId), animMs);
     } else if (action === 'reroll') {
       // Bonus check (only after the first roll, only on a hot-dice-bound commit).
       if (this._turnRollCount > 1 && this.diceState.every(d => d.locked)) {
