@@ -535,6 +535,20 @@ export class GameRoom {
       }
 
       this._checkAwaitingKeepDisturbances();
+
+      // Pending bust window: if any scoring die now exists (an item saved the
+      // turn), cancel the bust. Otherwise fire it once the 2 s grace expires.
+      if (this._bustPendingTs) {
+        if (rollHasScore(this._currentActiveValues())) {
+          this._bustPendingTs = null;
+          this._bustPendingPlayer = null;
+          this._bustPendingLost = 0;
+          this.emitEvent({ type: 'log', text: 'Bust averted!', kind: 'bank' });
+          this.emitState();
+        } else if (Date.now() >= this._bustPendingTs) {
+          this._fireBust();
+        }
+      }
     }
   }
 
@@ -603,6 +617,18 @@ export class GameRoom {
         values: this.diceState.map(d => d.value),
         locked: this.diceState.map(d => d.locked),
       });
+      // Re-evaluate pending-bust state — the flick may have produced a scoring
+      // die (cancel the bust) or left things still bust (give a fresh 2 s).
+      if (this._bustPendingTs) {
+        if (rollHasScore(this._currentActiveValues())) {
+          this._bustPendingTs = null;
+          this._bustPendingPlayer = null;
+          this._bustPendingLost = 0;
+          this.emitEvent({ type: 'log', text: 'Bust averted!', kind: 'bank' });
+        } else {
+          this._bustPendingTs = Date.now() + 2000;
+        }
+      }
       this.phase = 'awaiting_keep';
       this.emitState();
       return;
@@ -642,18 +668,50 @@ export class GameRoom {
       }
     }
     if (!rollHasScore(activeValues)) {
-      this.phase = 'busted';
+      // Don't bust immediately — give other players a 2-second window to
+      // intervene with shop items (flick, tornado, etc.). The actual bust is
+      // fired by the awaiting_keep tick once the timer expires AND no scoring
+      // dice are present.
       const player = this.order[this.currentIdx];
-      const lost = this.turnPoints;
-      this.emitEvent({ type: 'bust', playerId: player, lost });
-      this.emitEvent({ type: 'log', text: `${this.nameOf(player)} busted! Lost ${lost}.`, kind: 'bust' });
-      this.turnPoints = 0;
+      this._bustPendingPlayer = player;
+      this._bustPendingLost = this.turnPoints;
+      this._bustPendingTs = Date.now() + 2000;
+      this.phase = 'awaiting_keep';
+      this.emitEvent({ type: 'bust_pending', playerId: player, untilTs: this._bustPendingTs });
       this.emitState();
-      setTimeout(() => this.endTurn(), 1500);
     } else {
+      // Any pending bust is cancelled (a new scoring opportunity exists).
+      this._bustPendingTs = null;
+      this._bustPendingPlayer = null;
+      this._bustPendingLost = 0;
       this.phase = 'awaiting_keep';
       this.emitState();
     }
+  }
+
+  _fireBust() {
+    const player = this._bustPendingPlayer;
+    const lost = this._bustPendingLost || 0;
+    this._bustPendingTs = null;
+    this._bustPendingPlayer = null;
+    this._bustPendingLost = 0;
+    this.phase = 'busted';
+    this.emitEvent({ type: 'bust', playerId: player, lost });
+    this.emitEvent({ type: 'log', text: `${this.nameOf(player)} busted! Lost ${lost}.`, kind: 'bust' });
+    this.turnPoints = 0;
+    this.emitState();
+    setTimeout(() => this.endTurn(), 1500);
+  }
+
+  _currentActiveValues() {
+    const out = [];
+    for (let i = 0; i < this.diceState.length; i++) {
+      if (this.diceState[i].locked) continue;
+      if (this.activeEffects.destroyed.has(i)) continue;
+      if (this.activeEffects.hiddenNow.has(i)) continue;
+      out.push(this.diceState[i].value);
+    }
+    return out;
   }
 
   // --- Player commit actions ---
@@ -790,6 +848,7 @@ export class GameRoom {
       destroyed: [...this.activeEffects.destroyed],
       weightedDice: [...this.activeEffects.weightedDice],
       hiddenNow: [...this.activeEffects.hiddenNow],
+      bustPendingUntilTs: this._bustPendingTs || null,
       hiddenIndices: this._hiddenForRoll || [],
       dookieZones: this.activeEffects.dookieZones.map(z => ({ ...z })),
       iceRinkActive: this.activeEffects.iceRinkActive,

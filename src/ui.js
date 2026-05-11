@@ -243,6 +243,10 @@ export function renderGameState(state, myId) {
     bannerText = `<span class="banner-name">GAME OVER</span>`;
   } else if (phase === 'busted') {
     bannerText = `<span class="banner-bust">BUST!</span>`;
+  } else if (state.bustPendingUntilTs && state.bustPendingUntilTs > Date.now()) {
+    const player = state.players.find(p => p.id === state.currentPlayerId);
+    const c = colorForPlayer(state, state.currentPlayerId);
+    bannerText = `<span class="banner-name" style="color:${c}">${player?.name || '...'}</span> <span class="banner-bust-pending">⚠ BUST INCOMING — items can save</span>`;
   } else {
     const player = state.players.find(p => p.id === state.currentPlayerId);
     const c = colorForPlayer(state, state.currentPlayerId);
