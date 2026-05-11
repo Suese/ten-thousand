@@ -246,7 +246,8 @@ export function renderGameState(state, myId) {
   } else if (state.bustPendingUntilTs && state.bustPendingUntilTs > Date.now()) {
     const player = state.players.find(p => p.id === state.currentPlayerId);
     const c = colorForPlayer(state, state.currentPlayerId);
-    bannerText = `<span class="banner-name" style="color:${c}">${player?.name || '...'}</span> <span class="banner-bust-pending">⚠ BUST INCOMING — items can save</span>`;
+    const remaining = Math.max(1, Math.ceil((state.bustPendingUntilTs - Date.now()) / 1000));
+    bannerText = `<span class="banner-name" style="color:${c}">${player?.name || '...'}</span> <span class="banner-bust-pending">Bust in ${remaining}s</span>`;
   } else {
     const player = state.players.find(p => p.id === state.currentPlayerId);
     const c = colorForPlayer(state, state.currentPlayerId);
@@ -262,6 +263,29 @@ export function renderGameState(state, myId) {
   els.rollBtn().style.display = inKeepPhase ? 'none' : '';
   els.keepBtn().style.display = inKeepPhase ? '' : 'none';
   els.bankBtn().style.display = inKeepPhase ? '' : 'none';
+}
+
+// Per-frame ticker — lets the bust countdown text decrement live without
+// requiring the host to spam state updates every second. Also toggles the
+// shake class on the banner whenever a bust is incoming.
+let _bannerLastShownSec = -1;
+export function tickBustCountdown(state, myId) {
+  const banner = els.turnBanner();
+  const active = !!(state && state.bustPendingUntilTs && state.bustPendingUntilTs > Date.now());
+  if (!active) {
+    _bannerLastShownSec = -1;
+    banner.classList.remove('shaking');
+    return;
+  }
+  if (!banner.classList.contains('shaking')) banner.classList.add('shaking');
+  const remaining = Math.max(1, Math.ceil((state.bustPendingUntilTs - Date.now()) / 1000));
+  if (remaining === _bannerLastShownSec) return;
+  _bannerLastShownSec = remaining;
+  const player = state.players.find(p => p.id === state.currentPlayerId);
+  const c = colorForPlayer(state, state.currentPlayerId);
+  banner.innerHTML =
+    `<span class="banner-name" style="color:${c}">${player?.name || '...'}</span> ` +
+    `<span class="banner-bust-pending">Bust in ${remaining}s</span>`;
 }
 
 export function updateSelectionUI(selectedValues, turnPoints, opts = {}) {

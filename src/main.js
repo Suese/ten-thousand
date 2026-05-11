@@ -42,6 +42,11 @@ document.addEventListener('click', (e) => {
   if (e.target instanceof HTMLButtonElement) sfx.click();
 });
 
+// Live-update the bust countdown text every animation frame.
+scene.onTick(() => {
+  ui.tickBustCountdown(currentState, myId);
+});
+
 // ---- Module state ----
 let mode = null;            // 'host' | 'client'
 let host = null;            // HostNet

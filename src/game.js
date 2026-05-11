@@ -536,20 +536,7 @@ export class GameRoom {
       }
 
       this._checkAwaitingKeepDisturbances();
-
-      // Pending bust window: if any scoring die now exists (an item saved the
-      // turn), cancel the bust. Otherwise fire it once the 2 s grace expires.
-      if (this._bustPendingTs) {
-        if (rollHasScore(this._currentActiveValues())) {
-          this._bustPendingTs = null;
-          this._bustPendingPlayer = null;
-          this._bustPendingLost = 0;
-          this.emitEvent({ type: 'log', text: 'Bust averted!', kind: 'bank' });
-          this.emitState();
-        } else if (Date.now() >= this._bustPendingTs) {
-          this._fireBust();
-        }
-      }
+      if (this._evaluateBustState()) this.emitState();
     }
   }
 
@@ -618,19 +605,8 @@ export class GameRoom {
         values: this.diceState.map(d => d.value),
         locked: this.diceState.map(d => d.locked),
       });
-      // Re-evaluate pending-bust state — the flick may have produced a scoring
-      // die (cancel the bust) or left things still bust (give a fresh 2 s).
-      if (this._bustPendingTs) {
-        if (rollHasScore(this._currentActiveValues())) {
-          this._bustPendingTs = null;
-          this._bustPendingPlayer = null;
-          this._bustPendingLost = 0;
-          this.emitEvent({ type: 'log', text: 'Bust averted!', kind: 'bank' });
-        } else {
-          this._bustPendingTs = Date.now() + BUST_GRACE_MS;
-        }
-      }
       this.phase = 'awaiting_keep';
+      this._evaluateBustState();
       this.emitState();
       return;
     }
@@ -668,26 +644,13 @@ export class GameRoom {
         activeValues.push(this.diceState[i].value);
       }
     }
-    if (!rollHasScore(activeValues)) {
-      // Don't bust immediately — give other players a 2-second window to
-      // intervene with shop items (flick, tornado, etc.). The actual bust is
-      // fired by the awaiting_keep tick once the timer expires AND no scoring
-      // dice are present.
-      const player = this.order[this.currentIdx];
-      this._bustPendingPlayer = player;
-      this._bustPendingLost = this.turnPoints;
-      this._bustPendingTs = Date.now() + BUST_GRACE_MS;
-      this.phase = 'awaiting_keep';
-      this.emitEvent({ type: 'bust_pending', playerId: player, untilTs: this._bustPendingTs });
-      this.emitState();
-    } else {
-      // Any pending bust is cancelled (a new scoring opportunity exists).
-      this._bustPendingTs = null;
-      this._bustPendingPlayer = null;
-      this._bustPendingLost = 0;
-      this.phase = 'awaiting_keep';
-      this.emitState();
-    }
+    // Transition to awaiting_keep. The bust state (or absence thereof) is
+    // evaluated centrally by _evaluateBustState — both from the next tick
+    // and as a one-shot here so the immediate state broadcast carries the
+    // correct pending status.
+    this.phase = 'awaiting_keep';
+    this._evaluateBustState();
+    this.emitState();
   }
 
   _fireBust() {
@@ -713,6 +676,47 @@ export class GameRoom {
       out.push(this.diceState[i].value);
     }
     return out;
+  }
+
+  // Centralised bust detection. Runs at end of onSettle (immediately when dice
+  // come to rest) and again every awaiting_keep tick. This is what catches the
+  // case where an item changes the dice during keep — even if the initial roll
+  // was valid — and slides the state into a bust.
+  // Returns true if state changed (caller should emit state).
+  _evaluateBustState() {
+    const activeValues = this._currentActiveValues();
+    const hasScoring   = activeValues.length > 0 && rollHasScore(activeValues);
+    const allStable    = activeValues.length > 0 && !activeValues.includes(0);
+
+    if (hasScoring) {
+      // Scoring available — cancel any pending bust.
+      if (this._bustPendingTs) {
+        this._bustPendingTs = null;
+        this._bustPendingPlayer = null;
+        this._bustPendingLost = 0;
+        this.emitEvent({ type: 'log', text: 'Bust averted!', kind: 'bank' });
+        return true;
+      }
+      return false;
+    }
+
+    // No scoring on the table.
+    if (!allStable) return false; // wait for dice to stabilize first
+
+    if (!this._bustPendingTs) {
+      // Brand-new bust state — start the grace timer.
+      this._bustPendingPlayer = this.order[this.currentIdx];
+      this._bustPendingLost = this.turnPoints;
+      this._bustPendingTs = Date.now() + BUST_GRACE_MS;
+      this.emitEvent({ type: 'bust_pending', playerId: this._bustPendingPlayer, untilTs: this._bustPendingTs });
+      return true;
+    }
+
+    if (Date.now() >= this._bustPendingTs) {
+      this._fireBust();
+      return false; // _fireBust emits its own state
+    }
+    return false;
   }
 
   // --- Player commit actions ---
