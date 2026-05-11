@@ -53,6 +53,109 @@ scene.onTick(() => {
   ui.tickBustCountdown(currentState, myId);
 });
 
+// Reposition the action bar so it doesn't obscure any die. Throttled to ~5 Hz
+// so the move is smooth (CSS transition takes 0.35 s) and doesn't churn the
+// layout every frame.
+let _lastRepositionTs = 0;
+scene.onTick(() => {
+  const now = performance.now();
+  if (now - _lastRepositionTs < 200) return;
+  _lastRepositionTs = now;
+  repositionActionBar();
+});
+
+const actionBarEl = document.getElementById('action-bar');
+const DIE_SCREEN_RADIUS = 60;     // generous bound around each die in screen px
+const DEFAULT_BAR_BOTTOM = 140;
+
+function rectsOverlap(a, b) {
+  return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+}
+
+function repositionActionBar() {
+  if (!actionBarEl || actionBarEl.offsetParent === null) return;
+  // Only nudge during active gameplay phases.
+  if (!currentState || currentState.phase === 'lobby' || currentState.phase === 'game_over' || currentState.phase === 'opening_roll') {
+    return;
+  }
+  const W = window.innerWidth, H = window.innerHeight;
+  const barRect = actionBarEl.getBoundingClientRect();
+  const barW = barRect.width, barH = barRect.height;
+
+  // Collect visible-die screen rects.
+  const diceRects = [];
+  for (let i = 0; i < scene.dieMeshes.length; i++) {
+    const m = scene.dieMeshes[i];
+    if (!m.visible) continue;
+    const p = scene.worldToScreen([m.position.x, m.position.y, m.position.z]);
+    diceRects.push({
+      left: p.x - DIE_SCREEN_RADIUS,
+      right: p.x + DIE_SCREEN_RADIUS,
+      top: p.y - DIE_SCREEN_RADIUS,
+      bottom: p.y + DIE_SCREEN_RADIUS,
+    });
+  }
+
+  // No dice visible → snap back to centered default.
+  if (diceRects.length === 0) {
+    if (actionBarEl.style.left || actionBarEl.style.bottom) {
+      actionBarEl.style.left = '';
+      actionBarEl.style.bottom = '';
+      actionBarEl.style.transform = '';
+    }
+    return;
+  }
+
+  // Predicate: does a centered-at-cx, bottom=b position clear every die?
+  const tryPos = (cx, bottom) => {
+    const left = cx - barW / 2;
+    const right = cx + barW / 2;
+    const top = H - bottom - barH;
+    const bot = H - bottom;
+    if (left < 8 || right > W - 8 || top < 60 || bot > H - 8) return false;
+    const rect = { left, right, top, bottom: bot };
+    for (const dr of diceRects) {
+      if (rectsOverlap(dr, rect)) return false;
+    }
+    return true;
+  };
+
+  const defaultCx = W / 2;
+  if (tryPos(defaultCx, DEFAULT_BAR_BOTTOM)) {
+    if (actionBarEl.style.left || actionBarEl.style.bottom) {
+      actionBarEl.style.left = '';
+      actionBarEl.style.bottom = '';
+      actionBarEl.style.transform = '';
+    }
+    return;
+  }
+
+  // Step 1: try shifting left in 40 px increments until clear or out of room.
+  for (let shift = 40; shift <= Math.min(600, defaultCx - barW / 2 - 8); shift += 40) {
+    const cx = defaultCx - shift;
+    if (tryPos(cx, DEFAULT_BAR_BOTTOM)) {
+      actionBarEl.style.left = cx + 'px';
+      actionBarEl.style.bottom = DEFAULT_BAR_BOTTOM + 'px';
+      actionBarEl.style.transform = 'translateX(-50%)';
+      return;
+    }
+  }
+
+  // Step 2: random fallback — try 30 spots scattered around the lower half of
+  // the screen until one is clear.
+  for (let i = 0; i < 30; i++) {
+    const cx = barW / 2 + 16 + Math.random() * (W - barW - 32);
+    const bot = 80 + Math.random() * (H * 0.55);
+    if (tryPos(cx, bot)) {
+      actionBarEl.style.left = cx + 'px';
+      actionBarEl.style.bottom = bot + 'px';
+      actionBarEl.style.transform = 'translateX(-50%)';
+      return;
+    }
+  }
+  // If we couldn't find anything, leave the bar where it is rather than thrash.
+}
+
 // ---- Module state ----
 let mode = null;            // 'host' | 'client'
 let host = null;            // HostNet

@@ -399,6 +399,8 @@ button.primary:hover:not(:disabled) {
   pointer-events: auto;
   min-width: 360px;
   text-align: center;
+  /* Smooth movement when the bar gets bumped out of a die's way. */
+  transition: left 0.35s ease, bottom 0.35s ease;
 }
 #selection-info { text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85); }
 #bank-btn {
@@ -468,7 +470,7 @@ button.primary:hover:not(:disabled) {
 #log {
   position: absolute;
   bottom: 24px;
-  right: 16px;
+  left: 16px;
   width: 280px;
   max-height: 220px;
   overflow-y: auto;
