@@ -6,6 +6,7 @@ import { MAX_PLAYERS } from './colors.js';
 const WIN_SCORE = 10000;
 const DOOKIE_DURATION_MS = 30000;
 const SAW_BLADE_DURATION_MS = 4000;
+const BUST_GRACE_MS = 5000;
 
 // Authoritative game-state machine. Lives only on the host.
 //
@@ -626,7 +627,7 @@ export class GameRoom {
           this._bustPendingLost = 0;
           this.emitEvent({ type: 'log', text: 'Bust averted!', kind: 'bank' });
         } else {
-          this._bustPendingTs = Date.now() + 2000;
+          this._bustPendingTs = Date.now() + BUST_GRACE_MS;
         }
       }
       this.phase = 'awaiting_keep';
@@ -675,7 +676,7 @@ export class GameRoom {
       const player = this.order[this.currentIdx];
       this._bustPendingPlayer = player;
       this._bustPendingLost = this.turnPoints;
-      this._bustPendingTs = Date.now() + 2000;
+      this._bustPendingTs = Date.now() + BUST_GRACE_MS;
       this.phase = 'awaiting_keep';
       this.emitEvent({ type: 'bust_pending', playerId: player, untilTs: this._bustPendingTs });
       this.emitState();
