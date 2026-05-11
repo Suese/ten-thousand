@@ -140,6 +140,37 @@ export function comicBurstHit(x, y) {
   comicBurst(x, y, HIT_WORDS[(Math.random() * HIT_WORDS.length) | 0]);
 }
 
+// Star Trek TNG "Q" flash — a bright cross-shaped light flare that pops in,
+// expands, and fades. Used when dice vanish for a fresh throw.
+export function qFlash(x, y) {
+  const el = document.createElement('div');
+  el.className = 'q-flash';
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  el.innerHTML = '<span class="q-flash-core"></span><span class="q-flash-ray"></span><span class="q-flash-ray2"></span>';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 700);
+}
+
+// Compact coin burst — spawns coins from a single point with a short window.
+// Used when a die "turns into" coins on bank.
+export function coinBurst(x, y, count = 14) {
+  for (let i = 0; i < count; i++) {
+    setTimeout(() => {
+      const el = document.createElement('div');
+      el.className = 'coin';
+      el.textContent = '$';
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.2;
+      const speed = 320 + Math.random() * 280;
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed;
+      spawn(el, vx, vy, 1400, 1.3 + Math.random() * 0.3, (Math.random() - 0.5) * 720);
+    }, i * 18);
+  }
+}
+
 // Blood-splat burst — red/dark-red particles spraying outward from a point.
 export function bloodSplat(x, y, count = 28) {
   const colors = ['#a30000', '#d80020', '#7a0010', '#ff3050', '#5a000a'];

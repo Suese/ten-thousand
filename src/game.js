@@ -118,7 +118,7 @@ export class GameRoom {
   _scheduleThrow() {
     if (this._rollPending) return;
     this._rollPending = true;
-    const SHAKE_MIN_MS = 500;
+    const SHAKE_MIN_MS = 750;
     const elapsed = Date.now() - (this._shakeStartTs || Date.now());
     const remaining = Math.max(0, SHAKE_MIN_MS - elapsed);
     const doThrow = () => {
@@ -838,7 +838,16 @@ export class GameRoom {
       const banked = this.turnPoints;
       const total = (this.totalScores[byId] || 0) + banked;
       this.totalScores[byId] = total;
-      this.emitEvent({ type: 'bank', playerId: byId, banked, total });
+      const bankedIndices = [];
+      const remainingIndices = [];
+      for (let i = 0; i < this.diceState.length; i++) {
+        if (this.diceState[i].locked) {
+          bankedIndices.push(i);
+        } else if (!this.activeEffects.destroyed.has(i) && !this.activeEffects.hiddenNow.has(i)) {
+          remainingIndices.push(i);
+        }
+      }
+      this.emitEvent({ type: 'bank', playerId: byId, banked, total, indices: bankedIndices, remainingIndices });
       this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${banked}. Total ${total}.`, kind: 'bank' });
       this.checkWinAndEndTurn(byId);
     } else if (action === 'reroll') {

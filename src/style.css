@@ -585,6 +585,74 @@ button.primary:hover:not(:disabled) {
   100% { transform: translate(-50%, -50%) scale(1.4) rotate(var(--burst-rot, 0deg)); opacity: 0; }
 }
 
+/* Q-style light flare: bright cross-shaped burst that pops + expands + fades.
+   Three layered spans (.q-flash-core, .q-flash-ray, .q-flash-ray2) give the
+   radial glow plus a horizontal and vertical light streak. */
+.q-flash {
+  position: fixed;
+  pointer-events: none;
+  z-index: 220;
+  width: 0;
+  height: 0;
+  transform: translate(-50%, -50%);
+  animation: q-flash-fade 0.7s ease-out forwards;
+}
+.q-flash .q-flash-core,
+.q-flash .q-flash-ray,
+.q-flash .q-flash-ray2 {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.q-flash .q-flash-core {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0%, #e0f0ff 35%, rgba(170, 210, 255, 0.6) 60%, transparent 75%);
+  box-shadow:
+    0 0 30px 10px rgba(255, 255, 255, 0.9),
+    0 0 60px 20px rgba(180, 220, 255, 0.7),
+    0 0 100px 30px rgba(120, 170, 255, 0.4);
+  animation: q-flash-core 0.7s ease-out forwards;
+}
+.q-flash .q-flash-ray {
+  width: 180px;
+  height: 4px;
+  background: linear-gradient(90deg, transparent 0%, #ffffff 50%, transparent 100%);
+  filter: blur(1px);
+  animation: q-flash-ray 0.7s ease-out forwards;
+}
+.q-flash .q-flash-ray2 {
+  width: 180px;
+  height: 4px;
+  background: linear-gradient(90deg, transparent 0%, #ffffff 50%, transparent 100%);
+  filter: blur(1px);
+  transform: translate(-50%, -50%) rotate(90deg);
+  animation: q-flash-ray2 0.7s ease-out forwards;
+}
+@keyframes q-flash-fade {
+  0%   { opacity: 0; }
+  10%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes q-flash-core {
+  0%   { transform: translate(-50%, -50%) scale(0.1); }
+  20%  { transform: translate(-50%, -50%) scale(1.4); }
+  100% { transform: translate(-50%, -50%) scale(3.5); }
+}
+@keyframes q-flash-ray {
+  0%   { transform: translate(-50%, -50%) scaleX(0); opacity: 0; }
+  15%  { transform: translate(-50%, -50%) scaleX(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scaleX(0.3); opacity: 0; }
+}
+@keyframes q-flash-ray2 {
+  0%   { transform: translate(-50%, -50%) rotate(90deg) scaleX(0); opacity: 0; }
+  15%  { transform: translate(-50%, -50%) rotate(90deg) scaleX(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) rotate(90deg) scaleX(0.3); opacity: 0; }
+}
+
 .coin {
   position: fixed;
   pointer-events: none;

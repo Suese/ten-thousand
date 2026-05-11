@@ -479,6 +479,14 @@ export class Scene {
     }
   }
 
+  // Screen-space [x, y] of a die's current world position. Ignores visibility
+  // so callers can capture the position right before the die is hidden.
+  getDieScreenPos(i) {
+    const m = this.dieMeshes[i];
+    if (!m) return null;
+    return this.worldToScreen([m.position.x, m.position.y, m.position.z]);
+  }
+
   // Returns the screen-space [x, y] for a given 3D world point using this scene's camera.
   worldToScreen(point) {
     const v = new THREE.Vector3(point[0], point[1], point[2]);

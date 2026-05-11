@@ -3,7 +3,7 @@ import { GameRoom } from './game.js';
 import { HostNet, ClientNet } from './net.js';
 import * as ui from './ui.js';
 import { SoundFX } from './audio.js';
-import { confettiBurst, coinShower, scorePopup, flashScreen, shake, centerOf, bloodSplat, comicBurstFlick, comicBurstHit } from './effects.js';
+import { confettiBurst, coinShower, coinBurst, scorePopup, flashScreen, shake, centerOf, bloodSplat, comicBurstFlick, comicBurstHit, qFlash } from './effects.js';
 import { ITEMS } from './items.js';
 import { colorHexForPlayer } from './colors.js';
 
@@ -218,6 +218,9 @@ function releaseRollHold() {
 // shake while the active player is holding. Cancel-on-stop kills any queued
 // noise bursts so the shake doesn't keep ringing after release.
 let _shakeInterval = null;
+// Tracks which dice were "in hand" last frame so we can flash them only on the
+// transition from visible → hidden, not every state update during the shake.
+let _prevInHandSet = new Set();
 function syncShakeAudio(state) {
   const want = !!(state && state.shaking);
   if (want && !_shakeInterval) {
@@ -505,6 +508,16 @@ function applyState(state) {
     for (let i = 0; i < 5; i++) scene.setDieWeighted(i, weighted.has(i));
 
     // Dice "in hand" during the hold-to-roll shake — hidden until thrown.
+    // Just before we hide them, fire a Q-style flash at each newly-disappearing
+    // die so it pops out of existence in Star Trek TNG fashion.
+    const newInHand = new Set(state.inHand || []);
+    for (const i of newInHand) {
+      if (!_prevInHandSet.has(i)) {
+        const pos = scene.getDieScreenPos(i);
+        if (pos) qFlash(pos.x, pos.y);
+      }
+    }
+    _prevInHandSet = newInHand;
     scene.setInHand(state.inHand || []);
 
     // Surface effects
@@ -588,8 +601,36 @@ function applyEvent(event) {
       sfx.bank();
       const where = centerOf(document.getElementById('action-bar'));
       scorePopup(`BANKED +${event.banked}`, where.x, where.y - 40, { bank: true });
-      // Scale celebration size + duration with banked points.
-      // 100 pts ≈ 0.9s of coins; 1000 ≈ 2.3s; 3000 ≈ 5.3s; 10000 ≈ 8s (capped).
+
+      // Capture each die's screen position right now (the next turn's parkAll
+      // will whisk the meshes off-stage within a frame or two).
+      const bankedSeq = (event.indices || [])
+        .map(i => ({ i, pos: scene.getDieScreenPos(i) }))
+        .filter(d => d.pos)
+        .sort((a, b) => a.pos.x - b.pos.x);
+      const remainingSeq = (event.remainingIndices || [])
+        .map(i => ({ i, pos: scene.getDieScreenPos(i) }))
+        .filter(d => d.pos);
+
+      // Banked dice transmute into coins in succession, left → right.
+      for (let k = 0; k < bankedSeq.length; k++) {
+        const { i, pos } = bankedSeq[k];
+        setTimeout(() => {
+          coinBurst(pos.x, pos.y, 18);
+          scene.hideDie(i);
+        }, k * 250);
+      }
+
+      // 0.5 s after the last bank-burst, the un-banked dice beam out.
+      const beamDelay = bankedSeq.length * 250 + 500;
+      for (const { i, pos } of remainingSeq) {
+        setTimeout(() => {
+          qFlash(pos.x, pos.y);
+          scene.hideDie(i);
+        }, beamDelay);
+      }
+
+      // Plus the existing center-of-screen shower scaled with banked points.
       const count = Math.min(220, 20 + Math.floor(event.banked / 50));
       const durMs = Math.min(8000, 800 + event.banked * 1.5);
       coinShower(where.x, where.y - 30, count, durMs);
