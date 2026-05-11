@@ -398,20 +398,12 @@ export class DicePhysics {
       }
     }
 
-    // Place locked dice at fixed positions on the right side of the table so they're visible
-    const lockedRow = lockedTransforms.length;
+    // Place locked dice along the front-left edge of the table so they're
+    // tucked out of the action zone but still visible to the player.
     for (let j = 0; j < lockedTransforms.length; j++) {
       const t = lockedTransforms[j];
-      const b = this.bodies[t.index];
-      b.velocity.set(0, 0, 0);
-      b.angularVelocity.set(0, 0, 0);
-      // Spread locked dice along the bottom rim
-      const xOffset = -3 + j * 1.4;
-      b.position.set(xOffset, 0.5, 4.2);
-      // Set quaternion so the kept value faces up
-      const q = quaternionForFaceUp(t.value);
-      b.quaternion.copy(q);
-      b.sleep();
+      const target = keptTargetTransform(j, t.value);
+      snapBodyToTransform(this.bodies[t.index], target);
     }
   }
 
@@ -538,6 +530,29 @@ const VALUE_TO_AXIS = {
   3: new THREE.Vector3( 0, 0, 1),
   4: new THREE.Vector3( 0, 0,-1),
 };
+
+// Computes the target world transform a die would occupy at index j in the
+// locked row, with its given face value on top. Used by the game layer to
+// orchestrate the on-commit lerp animation client-side.
+export function keptTargetTransform(j, value) {
+  const x = -5.2 + j * 1.2;
+  const y = 0.5;
+  const z = 5.4;
+  const q = quaternionForFaceUp(value);
+  return { x, y, z, qx: q.x, qy: q.y, qz: q.z, qw: q.w };
+}
+
+// Snaps a die's physical body to its kept-row pose immediately, with no
+// physics step interpolation. Sleeps the body so subsequent ticks don't
+// disturb it. Used at commit time so the host's streaming transforms reflect
+// the kept positions before the next turn starts.
+export function snapBodyToTransform(body, t) {
+  body.velocity.set(0, 0, 0);
+  body.angularVelocity.set(0, 0, 0);
+  body.position.set(t.x, t.y, t.z);
+  body.quaternion.set(t.qx, t.qy, t.qz, t.qw);
+  body.sleep();
+}
 
 function quaternionForFaceUp(value) {
   const localAxis = VALUE_TO_AXIS[value];

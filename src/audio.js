@@ -73,13 +73,18 @@ export class SoundFX {
     return this._loading;
   }
 
-  _playOverride(methodName, trackSet = null) {
+  _playOverride(methodName, trackSet = null, pitchVariance = 0) {
     const base = OVERRIDES[methodName];
     if (!base) return false;
     const buf = this._buffers.get(base);
     if (!buf || this.muted || !this.ctx) return false;
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
+    if (pitchVariance > 0) {
+      // Random playback rate within ±pitchVariance of 1.0 — keeps rapid
+      // dice clatter from sounding mechanically uniform.
+      src.playbackRate.value = 1 + (Math.random() * 2 - 1) * pitchVariance;
+    }
     src.connect(this.master);
     src.start();
     if (trackSet) {
@@ -179,7 +184,7 @@ export class SoundFX {
   }
 
   diceShake() {
-    if (this._playOverride('diceShake', this._activeShakeSources)) return;
+    if (this._playOverride('diceShake', this._activeShakeSources, 0.1)) return;
     for (let i = 0; i < 6; i++) {
       const id = setTimeout(() => this.noiseBurst(0.06, 1200 + Math.random() * 1500, 4, 0.13), i * 55);
       this._pendingShakeTimers.push(id);
@@ -218,14 +223,14 @@ export class SoundFX {
   }
 
   diceHitMat(intensity = 1) {
-    if (this._playOverride('diceHitMat')) return;
+    if (this._playOverride('diceHitMat', null, 0.1)) return;
     const v = Math.max(0.05, Math.min(1, intensity));
     this.noiseBurst(0.08, 140, 2.5, 0.22 * v);
     this.tone(80 + Math.random() * 30, 0.04, 'sine', 0.18 * v);
   }
 
   diceHitDice(intensity = 1) {
-    if (this._playOverride('diceHitDice')) return;
+    if (this._playOverride('diceHitDice', null, 0.1)) return;
     const v = Math.max(0.05, Math.min(1, intensity));
     this.noiseBurst(0.04, 2200 + Math.random() * 1500, 6, 0.16 * v);
     this.tone(1500 + Math.random() * 500, 0.02, 'square', 0.06 * v);

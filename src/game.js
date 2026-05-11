@@ -1,4 +1,4 @@
-import { DicePhysics } from './physics.js';
+import { DicePhysics, keptTargetTransform, snapBodyToTransform } from './physics.js';
 import { evaluateKeep, rollHasScore } from './rules.js';
 import { ITEMS } from './items.js';
 import { MAX_PLAYERS } from './colors.js';
@@ -64,6 +64,11 @@ export class GameRoom {
 
     this.broadcastTimer = 0;
     this.streaming = false;
+
+    // Tick-driven timer queue. All deferred actions go through here instead
+    // of setTimeout so they pause with the host's tick loop (e.g., when the
+    // tab is unfocused) and stay in lockstep with physics state changes.
+    this._timers = [];
 
     // ----- Shop / item state -----
     this.inventories = {};       // playerId -> { itemId: count }
@@ -133,7 +138,7 @@ export class GameRoom {
       this.beginRoll();
     };
     if (remaining === 0) doThrow();
-    else setTimeout(doThrow, remaining);
+    else this._scheduleAt(remaining, doThrow);
   }
 
   // Active player updates which dice they're highlighting; broadcast to all so spectators see it.
@@ -235,9 +240,9 @@ export class GameRoom {
           this.selection = this.selection.filter(i => i !== idx);
           this.physics.enterPortableHole(idx);
           this.emitEvent({ type: 'portable_hole_animate', dieIndex: idx, position: pos });
-          setTimeout(() => {
+          this._scheduleAt(1100, () => {
             this.physics.parkIndices([idx]); // also re-enables collision response
-          }, 1100);
+          });
         }
         extra = { targetPlayerId, dieIndex: idx };
         break;
@@ -473,6 +478,7 @@ export class GameRoom {
     this._turnRollCount = 0;
     this._rollPending = false;
     this._shaking = false;
+    this._bankingInProgress = false;
     this.physics.parkAll();
     // Clear turn-scoped item effects.
     this.activeEffects.destroyed.clear();
@@ -545,7 +551,27 @@ export class GameRoom {
 
   // --- Physics tick: called by host's render loop ---
 
+  // Schedules `action` to run after `delayMs`, from the tick loop. Drains in
+  // arrival order on each tick; not high-precision (granularity = tick rate).
+  _scheduleAt(delayMs, action) {
+    this._timers.push({ atTs: Date.now() + delayMs, action });
+  }
+
+  _drainTimers() {
+    if (!this._timers.length) return;
+    const now = Date.now();
+    const due = [];
+    const rest = [];
+    for (const t of this._timers) {
+      if (t.atTs <= now) due.push(t.action);
+      else rest.push(t);
+    }
+    this._timers = rest;
+    for (const action of due) action();
+  }
+
   tick(dt) {
+    this._drainTimers();
     // Turn-start auto-pass: 15 s to begin the turn or you're skipped.
     if (this.phase === 'awaiting_roll' && this._turnTimeoutTs && Date.now() >= this._turnTimeoutTs) {
       const playerId = this.order[this.currentIdx];
@@ -622,8 +648,13 @@ export class GameRoom {
         this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
       }
 
-      this._checkAwaitingKeepDisturbances();
-      if (this._evaluateBustState()) this.emitState();
+      // Skip disturbance + bust evaluation while a bank animation is playing
+      // out — the player has already chosen to bank, and the un-banked dice
+      // would otherwise trip a false "Bust in 5s" warning.
+      if (!this._bankingInProgress) {
+        this._checkAwaitingKeepDisturbances();
+        if (this._evaluateBustState()) this.emitState();
+      }
     }
   }
 
@@ -674,7 +705,7 @@ export class GameRoom {
       this.openingActiveId = null;
       this.phase = 'opening_roll';
       this.emitState();
-      setTimeout(() => this.beginNextOpeningRoll(), 800);
+      this._scheduleAt(800, () => this.beginNextOpeningRoll());
       return;
     }
 
@@ -751,7 +782,7 @@ export class GameRoom {
     this.emitEvent({ type: 'log', text: `${this.nameOf(player)} busted! Lost ${lost}.`, kind: 'bust' });
     this.turnPoints = 0;
     this.emitState();
-    setTimeout(() => this.endTurn(), 1500);
+    this._scheduleAt(1500, () => this.endTurn());
   }
 
   _currentActiveValues() {
@@ -834,6 +865,37 @@ export class GameRoom {
     this.emitEvent({ type: 'score', playerId: byId, score: evalRes.score, kept: keepValues, turnPoints: this.turnPoints });
     this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} keeps ${formatKept(keepValues)} for +${evalRes.score}.` });
 
+    // Snap every locked die to its kept-row pose in physics, and emit a
+    // 'kept_animation' event so clients can smoothly lerp the meshes from
+    // their landed positions into the row, one at a time.
+    const keptTargets = [];
+    let jj = 0;
+    for (let i = 0; i < this.diceState.length; i++) {
+      if (!this.diceState[i].locked) continue;
+      const tgt = keptTargetTransform(jj, this.diceState[i].value);
+      // Destroyed dice still occupy a kept-row slot for j-indexing (matches
+      // physics.throwDice) but we skip animating them — they're invisible.
+      if (!this.activeEffects.destroyed.has(i)) {
+        keptTargets.push({ index: i, value: this.diceState[i].value, ...tgt });
+        snapBodyToTransform(this.physics.bodies[i], tgt);
+      }
+      jj++;
+    }
+    keptTargets.sort((a, b) => a.x - b.x);
+    const lerpPerDieMs = 250;
+    const lerpDurationMs = 350;
+    const lerpTotalMs = keptTargets.length
+      ? (keptTargets.length - 1) * lerpPerDieMs + lerpDurationMs
+      : 0;
+    if (keptTargets.length) {
+      this.emitEvent({
+        type: 'kept_animation',
+        targets: keptTargets,
+        perDieMs: lerpPerDieMs,
+        lerpMs: lerpDurationMs,
+      });
+    }
+
     if (action === 'bank') {
       const banked = this.turnPoints;
       const total = (this.totalScores[byId] || 0) + banked;
@@ -847,12 +909,21 @@ export class GameRoom {
           remainingIndices.push(i);
         }
       }
-      this.emitEvent({ type: 'bank', playerId: byId, banked, total, indices: bankedIndices, remainingIndices });
-      this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${banked}. Total ${total}.`, kind: 'bank' });
-      // Hold the dice on the table while the client plays its bank animation
-      // (coin bursts 0.25 s apart + 0.5 s pause + Q beam-out ~0.7 s).
-      const animMs = bankedIndices.length * 250 + 500 + 800;
-      setTimeout(() => this.checkWinAndEndTurn(byId), animMs);
+      // Banking lock: while set, the awaiting_keep tick skips disturbance /
+      // bust evaluation so we don't briefly flash a "Bust in 5s" banner just
+      // because the un-banked dice no longer score on their own.
+      this._bankingInProgress = true;
+      // Wait for the kept-row lerp animation, then fire the bank event so the
+      // coin bursts start from the kept positions (not the landed ones).
+      const bankAnimMs = bankedIndices.length * 250 + 500 + 800;
+      this._scheduleAt(lerpTotalMs, () => {
+        this.emitEvent({ type: 'bank', playerId: byId, banked, total, indices: bankedIndices, remainingIndices });
+        this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${banked}. Total ${total}.`, kind: 'bank' });
+        this._scheduleAt(bankAnimMs, () => {
+          this._bankingInProgress = false;
+          this.checkWinAndEndTurn(byId);
+        });
+      });
     } else if (action === 'reroll') {
       // Bonus check (only after the first roll, only on a hot-dice-bound commit).
       if (this._turnRollCount > 1 && this.diceState.every(d => d.locked)) {
@@ -874,10 +945,12 @@ export class GameRoom {
         }
       }
       // Move to 'rolling' immediately so the keep/bank UI hides; shake audio
-      // keeps going (state.shaking still true) until the 2 s minimum elapses.
+      // keeps going (state.shaking still true) until the throw fires. Defer
+      // _scheduleThrow until the kept-row lerp completes so the locked dice
+      // are visually in place before the new throw flings the rest.
       this.phase = 'rolling';
       this.emitState();
-      this._scheduleThrow();
+      this._scheduleAt(lerpTotalMs, () => this._scheduleThrow());
     }
   }
 

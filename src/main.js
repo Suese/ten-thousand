@@ -221,6 +221,10 @@ let _shakeInterval = null;
 // Tracks which dice were "in hand" last frame so we can flash them only on the
 // transition from visible → hidden, not every state update during the shake.
 let _prevInHandSet = new Set();
+// Dice currently in their post-commit lerp into the kept row — incoming
+// transforms events for these indices are ignored so they don't fight the
+// client-side animation.
+const _animatingDice = new Set();
 function syncShakeAudio(state) {
   const want = !!(state && state.shaking);
   if (want && !_shakeInterval) {
@@ -555,11 +559,45 @@ function applyEvent(event) {
       if (_shakeInterval) { clearInterval(_shakeInterval); _shakeInterval = null; }
       sfx.cancelShake();
       sfx.tossDice();
+      // Lift sticky hides so the new throw can reveal dice, then immediately
+      // re-apply hides for anything that's still meant to stay hidden this
+      // roll (destroyed dice, portable-hole victims) so the upcoming
+      // transforms event can't flash them on screen.
+      scene.clearForceHidden();
+      if (currentState) {
+        const destroyed = new Set(currentState.destroyed || []);
+        const hiddenIdx = new Set(currentState.hiddenIndices || []);
+        const hiddenNow = new Set(currentState.hiddenNow || []);
+        for (let i = 0; i < 5; i++) {
+          if (destroyed.has(i) || hiddenIdx.has(i) || hiddenNow.has(i)) scene.hideDie(i);
+        }
+      }
       ui.log('Dice rolling...');
       break;
     case 'collision':
       sfx.collide(event.kind, event.intensity);
       break;
+    case 'kept_animation': {
+      // Each newly-or-still-locked die slides into its kept-row pose, one at
+      // a time, perDieMs apart. During each lerp the index is masked from
+      // streaming transforms so the animation isn't yanked around.
+      const perDieMs = event.perDieMs || 250;
+      const lerpMs = event.lerpMs || 350;
+      for (let k = 0; k < event.targets.length; k++) {
+        const t = event.targets[k];
+        setTimeout(() => {
+          _animatingDice.add(t.index);
+          scene.animateDieTransform(
+            t.index,
+            [t.x, t.y, t.z],
+            [t.qx, t.qy, t.qz, t.qw],
+            lerpMs,
+            () => _animatingDice.delete(t.index),
+          );
+        }, k * perDieMs);
+      }
+      break;
+    }
     case 'selection_removed':
       // Server detected a die was disturbed mid-keep — sync local optimistic set.
       for (const i of event.indices || []) selection.delete(i);
@@ -666,6 +704,7 @@ function applyEvent(event) {
     }
     case 'transforms':
       for (let i = 0; i < event.t.length; i++) {
+        if (_animatingDice.has(i)) continue;
         const t = event.t[i];
         scene.setDieTransform(i, [t[0], t[1], t[2]], [t[3], t[4], t[5], t[6]], true);
       }

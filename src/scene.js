@@ -344,6 +344,10 @@ export class Scene {
     );
 
     this.dieMeshes = [];
+    // Dice in this set stay invisible even when a streaming transforms event
+    // would otherwise restore them. Used for things like bank coin-bursts where
+    // the die must remain gone until the next throw clears the override.
+    this._forceHidden = new Set();
     this.selectionRings = [];
     for (let i = 0; i < 5; i++) {
       const m = createDieMesh();
@@ -454,17 +458,18 @@ export class Scene {
     const m = this.dieMeshes[i];
     const offstage = pos[1] < -5;
     const inHand = this._inHandSet && this._inHandSet.has(i);
-    m.visible = visible && !offstage && !inHand;
+    const forced = this._forceHidden.has(i);
+    m.visible = visible && !offstage && !inHand && !forced;
     m.position.set(pos[0], pos[1], pos[2]);
     m.quaternion.set(quat[0], quat[1], quat[2], quat[3]);
     const sel = this.selectionRings[i];
     sel.position.x = pos[0];
     sel.position.z = pos[2];
-    if (offstage || inHand) sel.visible = false;
+    if (offstage || inHand || forced) sel.visible = false;
     const lock = m.userData.lockRing;
     lock.position.x = pos[0];
     lock.position.z = pos[2];
-    if (offstage || inHand) lock.visible = false;
+    if (offstage || inHand || forced) lock.visible = false;
   }
 
   setInHand(indices) {
@@ -477,6 +482,40 @@ export class Scene {
         this.dieMeshes[i].userData.lockRing.visible = false;
       }
     }
+  }
+
+  // Smoothly interpolates a die's mesh from its current pose to (targetPos,
+  // targetQuat) over durationMs. Used for the on-commit "selected dice slide
+  // into the keep row" animation. Calls onDone when complete.
+  animateDieTransform(i, targetPos, targetQuat, durationMs, onDone) {
+    const m = this.dieMeshes[i];
+    if (!m) { onDone?.(); return; }
+    m.visible = true;
+    const fromX = m.position.x, fromY = m.position.y, fromZ = m.position.z;
+    const fromQ = new THREE.Quaternion(
+      m.quaternion.x, m.quaternion.y, m.quaternion.z, m.quaternion.w
+    );
+    const toQ = new THREE.Quaternion(targetQuat[0], targetQuat[1], targetQuat[2], targetQuat[3]);
+    const start = performance.now();
+    const sel = this.selectionRings[i];
+    const lock = m.userData.lockRing;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      const x = fromX + (targetPos[0] - fromX) * e;
+      const y = fromY + (targetPos[1] - fromY) * e;
+      const z = fromZ + (targetPos[2] - fromZ) * e;
+      m.position.set(x, y, z);
+      const interp = fromQ.clone().slerp(toQ, e);
+      m.quaternion.copy(interp);
+      sel.position.x = x;
+      sel.position.z = z;
+      lock.position.x = x;
+      lock.position.z = z;
+      if (t < 1) requestAnimationFrame(tick);
+      else onDone?.();
+    };
+    requestAnimationFrame(tick);
   }
 
   // Screen-space [x, y] of a die's current world position. Returns null if
@@ -779,7 +818,17 @@ export class Scene {
     }
   }
 
-  hideDie(i) { this.dieMeshes[i].visible = false; this.selectionRings[i].visible = false; this.dieMeshes[i].userData.lockRing.visible = false; }
+  hideDie(i) {
+    this._forceHidden.add(i);
+    this.dieMeshes[i].visible = false;
+    this.selectionRings[i].visible = false;
+    this.dieMeshes[i].userData.lockRing.visible = false;
+  }
+  // Called when a new throw begins — the next batch of dice should be free
+  // to appear, so we lift any sticky bank/portable-hole hides.
+  clearForceHidden() {
+    this._forceHidden.clear();
+  }
 
   // Compute a "subject" point — the average position of visible dice on the table.
   // Falls back to the table center when no dice are visible. Also returns the
