@@ -460,8 +460,9 @@ button.primary:hover:not(:disabled) {
   background: linear-gradient(180deg, #7da7ff 0%, #4866e0 100%);
   box-shadow: 0 0 22px rgba(120, 170, 255, 0.55);
 }
-/* Rapid wiggle while the Roll button is being held — visual tension. */
-#roll-btn.held {
+/* Rapid wiggle while the Roll/Keep button is being held — visual tension. */
+#roll-btn.held,
+#keep-btn.held {
   background: linear-gradient(180deg, #ffa05c 0%, #ff5050 100%);
   border-color: #ffa066;
   box-shadow: 0 0 28px rgba(255, 130, 80, 0.85);

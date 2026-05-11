@@ -178,29 +178,45 @@ ui.bindWaiting({
   },
 });
 
-// Hold-to-roll: the active player only sends a `shake_start` action on
-// mousedown — the host flips `state.shaking = true`, broadcasts to all
-// clients, and EVERY client (not just the holder) drives a local dice-shake
-// audio loop synced from the state field below. Release fires `request_roll`,
-// which clears `shaking` and begins the actual roll on the host.
-let _rollHolding = false;
-function startRollHold() {
-  if (_rollHolding) return;
-  if (!currentState || currentState.phase !== 'awaiting_roll') return;
+// Unified hold-to-roll for both the Roll button (start of turn) and the Keep
+// button (subsequent rolls / hot dice). Active player sends `shake_start` on
+// mousedown — host flips `state.shaking = true`, every client locally drives
+// the dice-shake audio loop. Release sends the action that triggers the roll:
+//   Roll button   → request_roll
+//   Keep button   → commit('reroll', selection)
+// Bank stays a regular click.
+let _rollHoldKind = null;
+function startRollHold(btnId) {
+  if (_rollHoldKind) return;
+  if (!currentState) return;
   if (currentState.currentPlayerId !== myId) return;
-  _rollHolding = true;
+  if (btnId === 'roll-btn' && currentState.phase === 'awaiting_roll') {
+    _rollHoldKind = 'roll';
+    document.getElementById('roll-btn')?.classList.add('held');
+  } else if (btnId === 'keep-btn' && currentState.phase === 'awaiting_keep') {
+    // Require a non-empty selection — the Keep button is disabled by the UI
+    // when nothing is selected, so this is a belt-and-suspenders check.
+    if (selection.size === 0) return;
+    _rollHoldKind = 'keep';
+    document.getElementById('keep-btn')?.classList.add('held');
+  } else {
+    return;
+  }
   sendAction({ name: 'shake_start' });
-  document.getElementById('roll-btn')?.classList.add('held');
 }
 function releaseRollHold() {
-  if (!_rollHolding) return;
-  _rollHolding = false;
+  if (!_rollHoldKind) return;
+  const kind = _rollHoldKind;
+  _rollHoldKind = null;
   document.getElementById('roll-btn')?.classList.remove('held');
-  sendAction({ name: 'request_roll' });
+  document.getElementById('keep-btn')?.classList.remove('held');
+  if (kind === 'roll')      sendAction({ name: 'request_roll' });
+  else if (kind === 'keep') commitSelection('reroll');
 }
 
 // Shake audio driver — synced to state.shaking, so every client hears the
-// shake while the active player is holding Roll.
+// shake while the active player is holding. Cancel-on-stop kills any queued
+// noise bursts so the shake doesn't keep ringing after release.
 let _shakeInterval = null;
 function syncShakeAudio(state) {
   const want = !!(state && state.shaking);
@@ -210,13 +226,13 @@ function syncShakeAudio(state) {
   } else if (!want && _shakeInterval) {
     clearInterval(_shakeInterval);
     _shakeInterval = null;
+    sfx.cancelShake();
   }
 }
 
 ui.bindGame({
-  onRollHold: startRollHold,
-  onRollRelease: releaseRollHold,
-  onKeepReroll: () => commitSelection('reroll'),
+  onHold: startRollHold,
+  onRelease: releaseRollHold,
   onKeepBank: () => commitSelection('bank'),
 });
 
@@ -518,7 +534,10 @@ function applyEvent(event) {
     case 'roll_started':
       selection.clear();
       for (let i = 0; i < 5; i++) scene.setSelected(i, false);
-      sfx.diceShake();
+      // Hard-cut any lingering shake (queued setTimeouts + override sources)
+      // and play the toss whoosh right as the dice leave the cup.
+      sfx.cancelShake();
+      sfx.tossDice();
       ui.log('Dice rolling...');
       break;
     case 'collision':

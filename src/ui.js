@@ -194,24 +194,22 @@ export function bindWaiting({ onCopy, onStart }) {
   els.startBtn().addEventListener('click', onStart);
 }
 
-export function bindGame({ onRollHold, onRollRelease, onKeepReroll, onKeepBank }) {
-  const rollBtn = els.rollBtn();
-  // Hold-to-shake, release-anywhere-to-throw. mouseup / touchend listen at the
-  // window level so the player can release outside the button.
-  rollBtn.addEventListener('mousedown', (e) => {
-    if (rollBtn.disabled) return;
-    e.preventDefault();
-    onRollHold?.();
-  });
-  rollBtn.addEventListener('touchstart', (e) => {
-    if (rollBtn.disabled) return;
-    e.preventDefault();
-    onRollHold?.();
-  }, { passive: false });
-  window.addEventListener('mouseup', () => onRollRelease?.());
-  window.addEventListener('touchend', () => onRollRelease?.());
-
-  els.keepBtn().addEventListener('click', onKeepReroll);
+export function bindGame({ onHold, onRelease, onKeepBank }) {
+  // Both Roll and Keep buttons use hold-to-shake / release-anywhere-to-throw.
+  // Bank stays a plain click — it doesn't roll dice.
+  const wireHold = (btn) => {
+    const onDown = (e) => {
+      if (btn.disabled) return;
+      e.preventDefault();
+      onHold?.(btn.id);
+    };
+    btn.addEventListener('mousedown', onDown);
+    btn.addEventListener('touchstart', onDown, { passive: false });
+  };
+  wireHold(els.rollBtn());
+  wireHold(els.keepBtn());
+  window.addEventListener('mouseup', () => onRelease?.());
+  window.addEventListener('touchend', () => onRelease?.());
   els.bankBtn().addEventListener('click', onKeepBank);
 }
 

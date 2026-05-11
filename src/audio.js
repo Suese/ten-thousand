@@ -8,6 +8,7 @@ const OVERRIDES = {
   click:           'click',
   pluck:           'pluck',
   diceShake:       'dice_shake',
+  tossDice:        'toss_dice',
   diceHitMat:      'dice_mat',
   diceHitDice:     'dice_dice',
   selectDie:       'select',
@@ -37,6 +38,8 @@ export class SoundFX {
     this._collideCount = 0;
     this._buffers = new Map(); // basename -> AudioBuffer (set once loaded)
     this._loading = null;
+    this._pendingShakeTimers = []; // setTimeout IDs for queued shake bursts
+    this._activeShakeSources = new Set(); // override BufferSourceNodes still playing
   }
 
   ensure() {
@@ -71,7 +74,7 @@ export class SoundFX {
     return this._loading;
   }
 
-  _playOverride(methodName) {
+  _playOverride(methodName, trackSet = null) {
     const base = OVERRIDES[methodName];
     if (!base) return false;
     const buf = this._buffers.get(base);
@@ -80,7 +83,23 @@ export class SoundFX {
     src.buffer = buf;
     src.connect(this.master);
     src.start();
+    if (trackSet) {
+      trackSet.add(src);
+      src.onended = () => trackSet.delete(src);
+    }
     return true;
+  }
+
+  // Cancel any in-flight diceShake — both queued setTimeouts (synthesized
+  // bursts) and any playing override BufferSources. Called the moment a roll
+  // begins so the shake doesn't bleed into the dice landing.
+  cancelShake() {
+    for (const id of this._pendingShakeTimers) clearTimeout(id);
+    this._pendingShakeTimers.length = 0;
+    for (const src of this._activeShakeSources) {
+      try { src.stop(); } catch {}
+    }
+    this._activeShakeSources.clear();
   }
 
   resume() {
@@ -161,10 +180,42 @@ export class SoundFX {
   }
 
   diceShake() {
-    if (this._playOverride('diceShake')) return;
+    if (this._playOverride('diceShake', this._activeShakeSources)) return;
     for (let i = 0; i < 6; i++) {
-      setTimeout(() => this.noiseBurst(0.06, 1200 + Math.random() * 1500, 4, 0.13), i * 55);
+      const id = setTimeout(() => this.noiseBurst(0.06, 1200 + Math.random() * 1500, 4, 0.13), i * 55);
+      this._pendingShakeTimers.push(id);
     }
+  }
+
+  // Quick whoosh — plays at the moment of release, when the dice physically leave
+  // the cup and start flying. Bandpass-filtered noise sweep + a sharp click tail.
+  tossDice() {
+    if (this._playOverride('tossDice')) return;
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const dur = 0.22;
+    const sr = ctx.sampleRate;
+    const len = Math.max(1, Math.floor(dur * sr));
+    const buf = ctx.createBuffer(1, len, sr);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 1.5;
+    filter.frequency.setValueAtTime(400, t);
+    filter.frequency.exponentialRampToValueAtTime(2500, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.32, t + 0.02);
+    g.gain.setValueAtTime(0.32, t + dur - 0.06);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filter); filter.connect(g); g.connect(this.master);
+    src.start(t); src.stop(t + dur + 0.05);
+    // Short clack at the end — feels like the dice leave the hand
+    setTimeout(() => this.tone(180, 0.04, 'square', 0.18), 180);
   }
 
   diceHitMat(intensity = 1) {

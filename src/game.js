@@ -97,7 +97,9 @@ export class GameRoom {
   }
 
   shakeStart(fromId) {
-    if (this.phase !== 'awaiting_roll') return;
+    // Allow shake during awaiting_roll (start of turn) AND awaiting_keep
+    // (subsequent rolls / hot dice) so every roll uses hold-to-throw.
+    if (this.phase !== 'awaiting_roll' && this.phase !== 'awaiting_keep') return;
     if (this.order[this.currentIdx] !== fromId) return;
     if (this._shaking) return;
     this._shaking = true;
@@ -458,8 +460,12 @@ export class GameRoom {
     if (this.phase !== 'awaiting_roll') return;
     if (this.order[this.currentIdx] !== byId) return;
     this._turnTimeoutTs = null; // player got the roll in before the limit
-    this._shaking = false;       // shake ends — actual roll begins
-    this.beginRoll();
+    this._shaking = false;       // shake ends immediately on release
+    this.phase = 'rolling';      // hides action buttons during the pre-throw pause
+    this.emitState();
+    // Half-second pause: shake fully decays before dice start moving so the
+    // two sounds don't overlap.
+    setTimeout(() => this.beginRoll(), 500);
   }
 
   beginRoll() {
@@ -789,7 +795,11 @@ export class GameRoom {
       this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${banked}. Total ${total}.`, kind: 'bank' });
       this.checkWinAndEndTurn(byId);
     } else if (action === 'reroll') {
-      this.beginRoll();
+      // Same pre-throw pause as requestRoll so every roll has the shake → silence → throw rhythm.
+      this._shaking = false;
+      this.phase = 'rolling';
+      this.emitState();
+      setTimeout(() => this.beginRoll(), 500);
     }
   }
 

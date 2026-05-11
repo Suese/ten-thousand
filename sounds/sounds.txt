@@ -18,7 +18,8 @@ Game sounds
 
   xx click          Tactile feedback on every button click.
   xx pluck          Generic short pluck (small confirmations).
-  xx dice_shake     Rattle of the dice "cup" right as a roll starts.
+  xx dice_shake     Rattle of the dice "cup" while holding Roll/Keep (loops ~320 ms).
+  xx toss_dice      Quick whoosh at the moment the dice are thrown.
   xx dice_mat       A die thumping the felt.
   dice_dice      A die clacking into another die.
   select         Selecting a die during awaiting_keep.
