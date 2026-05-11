@@ -53,40 +53,60 @@ scene.onTick(() => {
   ui.tickBustCountdown(currentState, myId);
 });
 
-// Reposition the action bar so it doesn't obscure any die. Throttled to ~5 Hz
-// so the move is smooth (CSS transition takes 0.35 s) and doesn't churn the
-// layout every frame.
+// Reposition the action bar only when it's actually in the player's way:
+// during `awaiting_keep`, only considering still-selectable (un-locked) dice.
+// Runs at 2 Hz so the move is subtle, animated by CSS transition (0.35 s).
 let _lastRepositionTs = 0;
 scene.onTick(() => {
   const now = performance.now();
-  if (now - _lastRepositionTs < 200) return;
+  if (now - _lastRepositionTs < 500) return;
   _lastRepositionTs = now;
   repositionActionBar();
 });
 
 const actionBarEl = document.getElementById('action-bar');
-const DIE_SCREEN_RADIUS = 60;     // generous bound around each die in screen px
+const DIE_SCREEN_RADIUS = 55;
 const DEFAULT_BAR_BOTTOM = 140;
 
 function rectsOverlap(a, b) {
   return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
 }
 
+function resetActionBarPosition() {
+  if (actionBarEl.style.left || actionBarEl.style.bottom) {
+    actionBarEl.style.left = '';
+    actionBarEl.style.bottom = '';
+    actionBarEl.style.transform = '';
+  }
+}
+
 function repositionActionBar() {
   if (!actionBarEl || actionBarEl.offsetParent === null) return;
-  // Only nudge during active gameplay phases.
-  if (!currentState || currentState.phase === 'lobby' || currentState.phase === 'game_over' || currentState.phase === 'opening_roll') {
+  // Only relevant during the keep phase — that's when the player is reading dice
+  // values. During rolling / awaiting_roll / busted / lobby, return to default.
+  if (!currentState || currentState.phase !== 'awaiting_keep') {
+    resetActionBarPosition();
     return;
   }
+
+  // Only avoid dice the player can still SELECT. Locked dice from earlier in
+  // the turn don't matter (the bar may sit over them — they aren't being
+  // re-considered). Destroyed / hidden / hiddenNow are out of play too.
+  const destroyed = new Set(currentState.destroyed || []);
+  const hidden    = new Set(currentState.hiddenIndices || []);
+  const hiddenNow = new Set(currentState.hiddenNow || []);
+
   const W = window.innerWidth, H = window.innerHeight;
   const barRect = actionBarEl.getBoundingClientRect();
   const barW = barRect.width, barH = barRect.height;
 
-  // Collect visible-die screen rects.
   const diceRects = [];
   for (let i = 0; i < scene.dieMeshes.length; i++) {
     const m = scene.dieMeshes[i];
     if (!m.visible) continue;
+    const d = currentState.diceState?.[i];
+    if (!d || d.locked) continue;
+    if (destroyed.has(i) || hidden.has(i) || hiddenNow.has(i)) continue;
     const p = scene.worldToScreen([m.position.x, m.position.y, m.position.z]);
     diceRects.push({
       left: p.x - DIE_SCREEN_RADIUS,
@@ -96,64 +116,42 @@ function repositionActionBar() {
     });
   }
 
-  // No dice visible → snap back to centered default.
   if (diceRects.length === 0) {
-    if (actionBarEl.style.left || actionBarEl.style.bottom) {
-      actionBarEl.style.left = '';
-      actionBarEl.style.bottom = '';
-      actionBarEl.style.transform = '';
-    }
+    resetActionBarPosition();
     return;
   }
 
-  // Predicate: does a centered-at-cx, bottom=b position clear every die?
-  const tryPos = (cx, bottom) => {
+  const tryPos = (cx) => {
     const left = cx - barW / 2;
     const right = cx + barW / 2;
-    const top = H - bottom - barH;
-    const bot = H - bottom;
-    if (left < 8 || right > W - 8 || top < 60 || bot > H - 8) return false;
+    const top = H - DEFAULT_BAR_BOTTOM - barH;
+    const bot = H - DEFAULT_BAR_BOTTOM;
+    if (left < 8 || right > W - 8) return false;
     const rect = { left, right, top, bottom: bot };
-    for (const dr of diceRects) {
-      if (rectsOverlap(dr, rect)) return false;
-    }
+    for (const dr of diceRects) if (rectsOverlap(dr, rect)) return false;
     return true;
   };
 
   const defaultCx = W / 2;
-  if (tryPos(defaultCx, DEFAULT_BAR_BOTTOM)) {
-    if (actionBarEl.style.left || actionBarEl.style.bottom) {
-      actionBarEl.style.left = '';
-      actionBarEl.style.bottom = '';
-      actionBarEl.style.transform = '';
-    }
+  if (tryPos(defaultCx)) {
+    resetActionBarPosition();
     return;
   }
 
-  // Step 1: try shifting left in 40 px increments until clear or out of room.
-  for (let shift = 40; shift <= Math.min(600, defaultCx - barW / 2 - 8); shift += 40) {
+  // Subtle left-shift only (no random hopping). 30 px steps, capped at 250 px
+  // total. If we can't clear within that range, just leave the bar centered.
+  for (let shift = 30; shift <= 250; shift += 30) {
     const cx = defaultCx - shift;
-    if (tryPos(cx, DEFAULT_BAR_BOTTOM)) {
+    if (cx - barW / 2 < 8) break;
+    if (tryPos(cx)) {
       actionBarEl.style.left = cx + 'px';
       actionBarEl.style.bottom = DEFAULT_BAR_BOTTOM + 'px';
       actionBarEl.style.transform = 'translateX(-50%)';
       return;
     }
   }
-
-  // Step 2: random fallback — try 30 spots scattered around the lower half of
-  // the screen until one is clear.
-  for (let i = 0; i < 30; i++) {
-    const cx = barW / 2 + 16 + Math.random() * (W - barW - 32);
-    const bot = 80 + Math.random() * (H * 0.55);
-    if (tryPos(cx, bot)) {
-      actionBarEl.style.left = cx + 'px';
-      actionBarEl.style.bottom = bot + 'px';
-      actionBarEl.style.transform = 'translateX(-50%)';
-      return;
-    }
-  }
-  // If we couldn't find anything, leave the bar where it is rather than thrash.
+  // Couldn't find a clear nearby position — accept the overlap rather than
+  // bouncing around. The player can still read the bar; dice can still be picked.
 }
 
 // ---- Module state ----
@@ -180,27 +178,39 @@ ui.bindWaiting({
   },
 });
 
-// Hold-to-roll mechanic: pressing the Roll button starts the dice-shake
-// audio (continuously) and tagging the button with a wiggle. Releasing the
-// mouse / lifting the finger anywhere fires the actual roll. Adds tension.
+// Hold-to-roll: the active player only sends a `shake_start` action on
+// mousedown — the host flips `state.shaking = true`, broadcasts to all
+// clients, and EVERY client (not just the holder) drives a local dice-shake
+// audio loop synced from the state field below. Release fires `request_roll`,
+// which clears `shaking` and begins the actual roll on the host.
 let _rollHolding = false;
-let _rollShakeInterval = null;
 function startRollHold() {
   if (_rollHolding) return;
   if (!currentState || currentState.phase !== 'awaiting_roll') return;
   if (currentState.currentPlayerId !== myId) return;
   _rollHolding = true;
-  sfx.diceShake();
-  _rollShakeInterval = setInterval(() => sfx.diceShake(), 320);
+  sendAction({ name: 'shake_start' });
   document.getElementById('roll-btn')?.classList.add('held');
 }
 function releaseRollHold() {
   if (!_rollHolding) return;
   _rollHolding = false;
-  if (_rollShakeInterval) clearInterval(_rollShakeInterval);
-  _rollShakeInterval = null;
   document.getElementById('roll-btn')?.classList.remove('held');
   sendAction({ name: 'request_roll' });
+}
+
+// Shake audio driver — synced to state.shaking, so every client hears the
+// shake while the active player is holding Roll.
+let _shakeInterval = null;
+function syncShakeAudio(state) {
+  const want = !!(state && state.shaking);
+  if (want && !_shakeInterval) {
+    sfx.diceShake();
+    _shakeInterval = setInterval(() => sfx.diceShake(), 320);
+  } else if (!want && _shakeInterval) {
+    clearInterval(_shakeInterval);
+    _shakeInterval = null;
+  }
 }
 
 ui.bindGame({
@@ -436,6 +446,7 @@ function enterWaitingRoom(roomCode) {
 // ---- State / event handlers (run on host AND client) ----
 function applyState(state) {
   currentState = state;
+  syncShakeAudio(state);
 
   if (state.phase === 'lobby') {
     scene.hideAllDice();
@@ -529,7 +540,7 @@ function applyEvent(event) {
       break;
     }
     case 'score': {
-      const big = event.score >= 500;
+      const big = event.score >= 1000;
       if (big) sfx.scoreBig(); else sfx.scoreSmall(event.score);
       const where = centerOf(document.getElementById('action-bar'));
       scorePopup(`+${event.score}`, where.x, where.y - 60, { big });

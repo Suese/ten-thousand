@@ -86,6 +86,7 @@ export class GameRoom {
     switch (action.name) {
       case 'set_name':      this.setName(fromId, action.value); break;
       case 'start_game':    this.startGame(fromId); break;
+      case 'shake_start':   this.shakeStart(fromId); break;
       case 'request_roll':  this.requestRoll(fromId); break;
       case 'commit':        this.commit(fromId, action.action, action.indices); break;
       case 'rematch':       this.rematch(fromId); break;
@@ -93,6 +94,14 @@ export class GameRoom {
       case 'purchase':      this.purchaseItem(fromId, action.itemId); break;
       case 'use_item':      this.useItem(fromId, action.itemId, action.params || {}); break;
     }
+  }
+
+  shakeStart(fromId) {
+    if (this.phase !== 'awaiting_roll') return;
+    if (this.order[this.currentIdx] !== fromId) return;
+    if (this._shaking) return;
+    this._shaking = true;
+    this.emitState();
   }
 
   // Active player updates which dice they're highlighting; broadcast to all so spectators see it.
@@ -354,6 +363,7 @@ export class GameRoom {
       this.diceState = freshDice();
       this.phase = 'awaiting_roll';
       this._turnTimeoutTs = Date.now() + TURN_TIMEOUT_MS;
+      this._shaking = false;
       this.emitEvent({ type: 'log', text: `${this.nameOf(this.order[this.currentIdx])}'s turn.` });
     }
     this.emitState();
@@ -448,6 +458,7 @@ export class GameRoom {
     if (this.phase !== 'awaiting_roll') return;
     if (this.order[this.currentIdx] !== byId) return;
     this._turnTimeoutTs = null; // player got the roll in before the limit
+    this._shaking = false;       // shake ends — actual roll begins
     this.beginRoll();
   }
 
@@ -494,6 +505,7 @@ export class GameRoom {
     if (this.phase === 'awaiting_roll' && this._turnTimeoutTs && Date.now() >= this._turnTimeoutTs) {
       const playerId = this.order[this.currentIdx];
       this._turnTimeoutTs = null;
+      this._shaking = false;
       this.emitEvent({ type: 'log', text: `${this.nameOf(playerId)} ran out of time — turn skipped.`, kind: 'bust' });
       this.endTurn();
       return;
@@ -877,6 +889,7 @@ export class GameRoom {
       hiddenNow: [...this.activeEffects.hiddenNow],
       bustPendingUntilTs: this._bustPendingTs || null,
       turnTimeoutTs: this._turnTimeoutTs || null,
+      shaking: !!this._shaking,
       hiddenIndices: this._hiddenForRoll || [],
       dookieZones: this.activeEffects.dookieZones.map(z => ({ ...z })),
       iceRinkActive: this.activeEffects.iceRinkActive,
