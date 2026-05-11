@@ -817,27 +817,50 @@ export class Scene {
       const bobY = Math.sin(this._t * 0.25 + 1.7) * 0.012;
       const bobZ = Math.cos(this._t * 0.22 + 0.9) * 0.02;
 
-      // Position dolly — very minor bias toward subject + cursor.
+      // Position dolly — very minor bias toward subject, mouse parallax doubled.
       const subjX = this._camLook.x * 0.008;
       const subjY = Math.max(0, this._camLook.y) * 0.012;
       const subjZ = this._camLook.z * 0.006;
-      const mouseShiftX = this._mouseX * 0.12;
-      const mouseShiftY = -this._mouseY * 0.06;
+      const mouseShiftX = this._mouseX * 0.24;
+      const mouseShiftY = -this._mouseY * 0.12;
 
-      this.camera.position.set(
-        this._camBase.x + bobX + subjX + mouseShiftX,
-        this._camBase.y + bobY + subjY + mouseShiftY,
-        this._camBase.z + bobZ + subjZ,
-      );
+      const baseX = this._camBase.x + bobX + subjX + mouseShiftX;
+      const baseY = this._camBase.y + bobY + subjY + mouseShiftY;
+      const baseZ = this._camBase.z + bobZ + subjZ;
 
-      // Look-at: scale subject + mouse offsets way down so the camera tilts only
-      // a couple degrees even when dice are far across the table or the cursor
-      // is at a screen edge. (Camera is ~19u from origin; ≤0.6 units of offset
-      // works out to ≤2° angular change.)
-      const lookX = this._camLook.x * 0.05 + this._mouseX * 0.18;
+      // Look-at — mouse parallax doubled.
+      const lookX = this._camLook.x * 0.05 + this._mouseX * 0.36;
       const lookY = this._camLook.y * 0.04;
-      const lookZ = this._camLook.z * 0.05 + this._mouseY * 0.10;
-      this.camera.lookAt(lookX, lookY, lookZ);
+      const lookZ = this._camLook.z * 0.05 + this._mouseY * 0.20;
+      const lookAt = new THREE.Vector3(lookX, lookY, lookZ);
+
+      // Place the camera at the base position and aim it.
+      this.camera.position.set(baseX, baseY, baseZ);
+      this.camera.lookAt(lookAt);
+      this.camera.updateMatrixWorld(true);
+
+      // Frame guard: project every visible die to NDC and find the worst-offending
+      // |x| / |y|. If any die is outside the safe-zone, push the camera back along
+      // the (basePosition → lookAt) axis so it fits. Smoothly relaxes back to 1.0
+      // when dice return to the middle of the frame.
+      const SAFE_ZONE = 0.85;
+      const tmpProj = new THREE.Vector3();
+      let maxAbs = 0;
+      for (const m of this.dieMeshes) {
+        if (!m.visible) continue;
+        if (m.position.y < -1) continue; // parked offstage
+        tmpProj.copy(m.position).project(this.camera);
+        if (Math.abs(tmpProj.x) > maxAbs) maxAbs = Math.abs(tmpProj.x);
+        if (Math.abs(tmpProj.y) > maxAbs) maxAbs = Math.abs(tmpProj.y);
+      }
+      const targetZoom = Math.max(1.0, maxAbs / SAFE_ZONE);
+      this._zoomMult = (this._zoomMult ?? 1.0) + (targetZoom - (this._zoomMult ?? 1.0)) * 0.1;
+      if (Math.abs(this._zoomMult - 1.0) > 0.003) {
+        const basePos = new THREE.Vector3(baseX, baseY, baseZ);
+        const offset = basePos.sub(lookAt).multiplyScalar(this._zoomMult);
+        this.camera.position.copy(lookAt).add(offset);
+        this.camera.lookAt(lookAt);
+      }
 
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(loop);

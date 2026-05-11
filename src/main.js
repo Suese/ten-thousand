@@ -573,9 +573,9 @@ function applyEvent(event) {
     case 'bonus': {
       sfx.scoreBig();
       const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
-      scorePopup(`${event.label} +${event.score}`, cx, cy - 40, { big: true });
+      scorePopup(`${event.label} +${event.score}`, cx, cy - 40, { bonus: true });
       confettiBurst(cx, cy - 20, 80);
-      flashScreen('#ffd400', 0.35);
+      flashScreen('#ff3050', 0.35);
       break;
     }
     case 'turn_skipped': {
@@ -671,9 +671,13 @@ function applyEvent(event) {
         tornado:       () => sfx.tableSaw(8),
       };
       idMap[event.itemId]?.();
-      const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
       const item = ITEMS[event.itemId];
-      if (item) scorePopup(`${item.icon} ${item.name}!`, cx, cy - 60, { big: true });
+      if (item) {
+        // Shop item activation sign — lower-right corner instead of center.
+        const px = window.innerWidth - 200;
+        const py = window.innerHeight - 100;
+        scorePopup(`${item.icon} ${item.name}!`, px, py, { big: true });
+      }
       flashScreen('#ffd400', 0.18);
       // Cartoony comic burst at the flick hit point
       if (event.itemId === 'flick' && Array.isArray(event.hitPoint)) {

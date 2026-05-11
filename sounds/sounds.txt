@@ -5,9 +5,9 @@ Drop audio files into this folder using the filenames below to override the
 built-in synthesized SFX. If a file is absent, the procedural version still
 plays — you only need to add the ones you want to replace.
 
-Supported extensions: .mp3, .wav, .ogg
-Lookup order per slot: .mp3 first, then .wav, then .ogg. The first that
-exists wins.
+Only .mp3 is looked up — one HTTP request per slot. Convert any .wav / .ogg
+sources to .mp3 before dropping them in here. If a slot's file is missing,
+the procedural synthesized version plays.
 
 The whole thing is gated by the in-game mute button (top-right 🔊 / 🔇)
 and respects the master volume just like the synthesized sounds.

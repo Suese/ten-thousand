@@ -67,6 +67,7 @@ export function scorePopup(text, x, y, opts = {}) {
   if (opts.big) el.classList.add('big');
   if (opts.bust) el.classList.add('bust');
   if (opts.bank) el.classList.add('bank');
+  if (opts.bonus) el.classList.add('bonus');
   el.textContent = text;
   el.style.left = x + 'px';
   el.style.top = y + 'px';

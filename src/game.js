@@ -472,13 +472,9 @@ export class GameRoom {
   requestRoll(byId) {
     if (this.phase !== 'awaiting_roll') return;
     if (this.order[this.currentIdx] !== byId) return;
-    this._turnTimeoutTs = null; // player got the roll in before the limit
-    this._shaking = false;       // shake ends immediately on release
-    this.phase = 'rolling';      // hides action buttons during the pre-throw pause
-    this.emitState();
-    // Half-second pause: shake fully decays before dice start moving so the
-    // two sounds don't overlap.
-    setTimeout(() => this.beginRoll(), 500);
+    this._turnTimeoutTs = null;
+    this._shaking = false;
+    this.beginRoll();
   }
 
   beginRoll() {
@@ -567,7 +563,9 @@ export class GameRoom {
 
       if (!this._settleStart) this._settleStart = performance.now();
       const elapsed = performance.now() - this._settleStart;
-      if (elapsed > 300 && this.physics.isSettled()) {
+      // Minimum 750 ms in the rolling phase — the visual + audio of a throw
+      // always get to play out, even when the dice would have settled sooner.
+      if (elapsed > 750 && this.physics.isSettled()) {
         this._settleStart = null;
         this.onSettle();
       } else if (elapsed > 3000) {
@@ -830,11 +828,8 @@ export class GameRoom {
           this.emitEvent({ type: 'log', text: `${label} +${bonus} bonus!`, kind: 'bank' });
         }
       }
-      // Same pre-throw pause as requestRoll so every roll has the shake → silence → throw rhythm.
       this._shaking = false;
-      this.phase = 'rolling';
-      this.emitState();
-      setTimeout(() => this.beginRoll(), 500);
+      this.beginRoll();
     }
   }
 

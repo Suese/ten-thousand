@@ -636,6 +636,15 @@ button.primary:hover:not(:disabled) {
   color: #7cf3a0;
   text-shadow: 0 0 18px rgba(80, 240, 130, 0.85);
 }
+.score-popup.bonus {
+  font-size: 56px;
+  background: linear-gradient(180deg, #ff8a9d, #ff3050 50%, #b8001f);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 30px rgba(255, 60, 100, 0.85);
+  animation: pop-big 2s ease-out forwards;
+}
 
 @keyframes pop-rise {
   0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }

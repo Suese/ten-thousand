@@ -12,12 +12,23 @@ export class DicePhysics {
     this.world.defaultContactMaterial.restitution = 0.22;
     this.world.defaultContactMaterial.friction = 0.75;
 
-    const ground = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
+    // Per-surface CANNON materials so we can tune friction independently:
+    //   dice ↔ ground (felt): rolling-friction-y (keeps the felt feel correct)
+    //   dice ↔ walls : low friction so dice glance off rims instead of sticking
+    //   dice ↔ dice  : low friction so dice don't lock against each other
+    const diceMat = new CANNON.Material('dice');
+    const groundMat = new CANNON.Material('ground');
+    const wallMat = new CANNON.Material('wall');
+    this._diceMat = diceMat;
+    this._groundMat = groundMat;
+    this._wallMat = wallMat;
+
+    const ground = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), material: groundMat });
     ground.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
     this.world.addBody(ground);
 
     const addWall = (x, z, nx, nz) => {
-      const b = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
+      const b = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), material: wallMat });
       b.position.set(x, 0, z);
       const defaultN = new CANNON.Vec3(0, 0, 1);
       const targetN = new CANNON.Vec3(nx, 0, nz);
@@ -40,12 +51,32 @@ export class DicePhysics {
         sleepTimeLimit: 0.4,
         linearDamping: 0.08,
         angularDamping: 0.12,
+        material: diceMat,
       });
       b.allowSleep = true;
       b.position.set(20, -20, 0);
       this.world.addBody(b);
       this.bodies.push(b);
     }
+
+    // Contact materials — registered with the world so they're picked up over
+    // the default. dice/ground stays grippy so dice roll on felt; dice/wall
+    // and dice/dice are slick + bouncy so impacts don't stall.
+    this._cmGround = new CANNON.ContactMaterial(diceMat, groundMat, {
+      friction: 0.75,
+      restitution: 0.22,
+    });
+    this._cmWall = new CANNON.ContactMaterial(diceMat, wallMat, {
+      friction: 0.08,
+      restitution: 0.50,
+    });
+    this._cmDice = new CANNON.ContactMaterial(diceMat, diceMat, {
+      friction: 0.08,
+      restitution: 0.32,
+    });
+    this.world.addContactMaterial(this._cmGround);
+    this.world.addContactMaterial(this._cmWall);
+    this.world.addContactMaterial(this._cmDice);
     this.activeIndices = [];
 
     // Item-effect state
@@ -163,7 +194,14 @@ export class DicePhysics {
 
   setIceRink(on) {
     this.iceRink = !!on;
-    // Slick — almost no contact friction, bouncy off walls, no velocity decay.
+    // Only the dice/ground contact changes for ice — dice/wall and dice/dice
+    // are already low-friction by default and stay that way.
+    if (this._cmGround) {
+      this._cmGround.friction = on ? 0.001 : 0.75;
+      this._cmGround.restitution = on ? 0.78 : 0.22;
+    }
+    // Belt-and-suspenders update of the default contact material in case any
+    // body-pair somehow falls through to it.
     this.world.defaultContactMaterial.friction = on ? 0.001 : this._normalFriction;
     this.world.defaultContactMaterial.restitution = on ? 0.78 : 0.22;
     for (const b of this.bodies) {
@@ -173,7 +211,6 @@ export class DicePhysics {
       b.sleepTimeLimit = on ? 2.0 : 0.4;
     }
     if (on) {
-      // If dice were already settled, give them a tiny shove so the slip is visible.
       for (const b of this.bodies) {
         if (b.position.y > -1) {
           b.wakeUp();

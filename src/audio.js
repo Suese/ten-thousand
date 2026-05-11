@@ -54,22 +54,20 @@ export class SoundFX {
     this._loadOverrides();
   }
 
-  // Best-effort fetch + decode of every override basename. Missing files (404)
-  // are silently ignored so the synthesized fallback can still run.
+  // Best-effort fetch + decode of every override basename. Only .mp3 is looked
+  // up (one request per slot). Missing files (404) are silently ignored so the
+  // synthesized fallback can still run.
   async _loadOverrides() {
     if (this._loading) return this._loading;
     const basenames = [...new Set(Object.values(OVERRIDES))];
     const tryLoad = async (base) => {
-      for (const ext of ['mp3', 'wav', 'ogg']) {
-        try {
-          const res = await fetch(`./sounds/${base}.${ext}`);
-          if (!res.ok) continue;
-          const arr = await res.arrayBuffer();
-          const buf = await this.ctx.decodeAudioData(arr);
-          this._buffers.set(base, buf);
-          return;
-        } catch (e) { /* try next extension */ }
-      }
+      try {
+        const res = await fetch(`./sounds/${base}.mp3`);
+        if (!res.ok) return;
+        const arr = await res.arrayBuffer();
+        const buf = await this.ctx.decodeAudioData(arr);
+        this._buffers.set(base, buf);
+      } catch (e) { /* file missing or decode failed — keep synthesized */ }
     };
     this._loading = Promise.allSettled(basenames.map(tryLoad));
     return this._loading;
