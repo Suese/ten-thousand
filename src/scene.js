@@ -673,9 +673,9 @@ export class Scene {
         };
         requestAnimationFrame(animate);
       };
-      // Initial stink burst + ongoing periodic emission
-      for (let i = 0; i < 2; i++) setTimeout(spawnStink, i * 250);
-      m.userData.stinkInterval = setInterval(spawnStink, 550 + Math.random() * 350);
+      // Initial stink + ongoing periodic emission (rate halved).
+      setTimeout(spawnStink, 0);
+      m.userData.stinkInterval = setInterval(spawnStink, 1100 + Math.random() * 700);
     }
   }
 
