@@ -378,6 +378,13 @@ export class DicePhysics {
     for (const i of this.activeIndices) {
       const entry = this._faceTracker.get(i);
       if (!entry || entry.stableFrames < STABLE_FRAMES_REQUIRED) return false;
+      // Also require the die isn't still rotating in a flip-causing direction.
+      // We allow vertical spin (around world up) so an ice-spun die that's flat
+      // can still settle without dragging on forever, but reject any meaningful
+      // horizontal angular velocity — that would tip the face over soon.
+      const w = this.bodies[i].angularVelocity;
+      const wHoriz = Math.sqrt(w.x * w.x + w.z * w.z);
+      if (wHoriz > 1.0) return false;
     }
     return true;
   }
@@ -421,33 +428,36 @@ export class DicePhysics {
     return this.activeIndices.map(i => readDieValue(this.bodies[i].quaternion));
   }
 
-  // Slight nudge if a die wedges against a wall vertically (prevents stuck-on-edge readings)
+  // Gentle nudge applied to active dice that are taking a while to settle.
+  // Two cases: stuck-tilted gets a small kick to fall flat; flat-but-spinning
+  // gets its horizontal angular velocity damped so the face-stability check fires.
   unstickIfNeeded() {
+    const up = new CANNON.Vec3(0, 1, 0);
+    const axes = [
+      new CANNON.Vec3( 1, 0, 0), new CANNON.Vec3(-1, 0, 0),
+      new CANNON.Vec3( 0, 1, 0), new CANNON.Vec3( 0,-1, 0),
+      new CANNON.Vec3( 0, 0, 1), new CANNON.Vec3( 0, 0,-1),
+    ];
     for (const i of this.activeIndices) {
       const b = this.bodies[i];
-      // Check tilt: which axis is closest to up
-      const value = readDieValue(b.quaternion);
-      // pick the closest face's dot
-      const up = new CANNON.Vec3(0, 1, 0);
-      const axes = [
-        new CANNON.Vec3( 1, 0, 0), new CANNON.Vec3(-1, 0, 0),
-        new CANNON.Vec3( 0, 1, 0), new CANNON.Vec3( 0,-1, 0),
-        new CANNON.Vec3( 0, 0, 1), new CANNON.Vec3( 0, 0,-1),
-      ];
       let best = -Infinity;
       for (const a of axes) {
         const r = b.quaternion.vmult(a);
         const d = r.dot(up);
         if (d > best) best = d;
       }
-      if (best < 0.92) {
+      if (best < 0.9) {
         b.wakeUp();
-        b.angularVelocity.set(
-          (Math.random() - 0.5) * 8,
-          (Math.random() - 0.5) * 8,
-          (Math.random() - 0.5) * 8
-        );
-        b.velocity.y = 2;
+        b.angularVelocity.x += (Math.random() - 0.5) * 4;
+        b.angularVelocity.y += (Math.random() - 0.5) * 4;
+        b.angularVelocity.z += (Math.random() - 0.5) * 4;
+        b.velocity.y = Math.max(b.velocity.y, 1.2);
+      } else {
+        // Already flat-ish — just damp horizontal spin so it can stabilize.
+        b.angularVelocity.x *= 0.35;
+        b.angularVelocity.z *= 0.35;
+        b.velocity.x *= 0.85;
+        b.velocity.z *= 0.85;
       }
     }
   }

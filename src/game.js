@@ -513,7 +513,9 @@ export class GameRoom {
       if (elapsed > 300 && this.physics.isSettled()) {
         this._settleStart = null;
         this.onSettle();
-      } else if (elapsed > 8000) {
+      } else if (elapsed > 3000) {
+        // Lingering too long — give the dice a gentle nudge. Reset to 500 ms
+        // elapsed so the next nudge fires in another ~2.5 s if still unsettled.
         this.physics.unstickIfNeeded();
         this._settleStart = performance.now() - 500;
       }
@@ -547,13 +549,18 @@ export class GameRoom {
       const fs = faceStates[i];
       if (!fs) continue;
       if (fs.stable) {
-        // Settled (possibly on a new face after disturbance). Update the value.
         if (this.diceState[i].value !== fs.value) {
           this.diceState[i].value = fs.value;
           stateChanged = true;
         }
       } else {
-        // Currently disturbed — drop from selection if it was selected.
+        // Currently unstable (mid-flip / mid-tumble). Invalidate the stored
+        // value with 0 so scoring/bust logic doesn't think it's still showing
+        // its pre-disturbance face. Re-stabilization will update it.
+        if (this.diceState[i].value !== 0) {
+          this.diceState[i].value = 0;
+          stateChanged = true;
+        }
         if (this.selection.includes(i)) disturbed.push(i);
       }
     }

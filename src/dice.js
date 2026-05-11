@@ -16,6 +16,7 @@ const SCHEMES = {
     pipInner: '#ffffff', pipMid: '#fafafa', pipOuter: '#cfcfcf',
     pipHighlight: 'rgba(255,255,255,0.6)',
     pipShadow: 'rgba(0,0,0,0.3)',
+    pipBorder: '#3a0710',
     grain: 'rgba(255,255,255,0.04)',
   },
   gold: {
@@ -23,9 +24,74 @@ const SCHEMES = {
     pipInner: '#2a1700', pipMid: '#1a0e00', pipOuter: '#0f0800',
     pipHighlight: 'rgba(255,224,128,0.45)',
     pipShadow: 'rgba(0,0,0,0.55)',
+    pipBorder: '#3a1a00',
     grain: 'rgba(255,255,255,0.05)',
   },
 };
+
+const PIP_POSITIONS = {
+  1: [[0.5, 0.5]],
+  2: [[0.27, 0.27], [0.73, 0.73]],
+  3: [[0.27, 0.27], [0.5, 0.5], [0.73, 0.73]],
+  4: [[0.27, 0.27], [0.73, 0.27], [0.27, 0.73], [0.73, 0.73]],
+  5: [[0.27, 0.27], [0.73, 0.27], [0.5, 0.5], [0.27, 0.73], [0.73, 0.73]],
+  6: [[0.27, 0.27], [0.73, 0.27], [0.27, 0.5], [0.73, 0.5], [0.27, 0.73], [0.73, 0.73]],
+};
+
+// Build a normal map for the given pip positions — flat default (0,0,1), with a
+// bowl-shaped indent at each pip so directional light shows depth even when the
+// die is reflective and the pip colors blend with the lit surface.
+function pipNormalMap(value, size, baseR) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  // Default flat normal = +Z: rgb(128, 128, 255).
+  ctx.fillStyle = 'rgb(128, 128, 255)';
+  ctx.fillRect(0, 0, size, size);
+
+  const positions = PIP_POSITIONS[value];
+  const r = (value === 1 ? baseR * 1.45 : baseR) + 4;  // indent slightly bigger than the pip art
+  const inner = r * 0.55;
+  const data = ctx.getImageData(0, 0, size, size);
+  const px = data.data;
+
+  for (const [pxN, pyN] of positions) {
+    const cx = pxN * size;
+    const cy = pyN * size;
+    const x0 = Math.max(0, Math.floor(cx - r));
+    const x1 = Math.min(size, Math.ceil(cx + r));
+    const y0 = Math.max(0, Math.floor(cy - r));
+    const y1 = Math.min(size, Math.ceil(cy + r));
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const dx = x - cx;
+        const dy = y - cy;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > r) continue;
+        // Inside the rim wall: normal tilts radially outward (bowl wall sloping
+        // from flat surface down to the flat bottom of the pip).
+        let nx = 0, ny = 0;
+        if (d > inner) {
+          const t = (d - inner) / (r - inner); // 0..1
+          const strength = Math.sin(t * Math.PI * 0.5) * 0.85;
+          nx = (dx / d) * strength;
+          ny = -(dy / d) * strength; // OpenGL +Y up — flip canvas Y
+        }
+        const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+        const idx = (y * size + x) * 4;
+        px[idx + 0] = Math.round((nx * 0.5 + 0.5) * 255);
+        px[idx + 1] = Math.round((ny * 0.5 + 0.5) * 255);
+        px[idx + 2] = Math.round((nz * 0.5 + 0.5) * 255);
+        px[idx + 3] = 255;
+      }
+    }
+  }
+  ctx.putImageData(data, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = 8;
+  tex.colorSpace = THREE.NoColorSpace;
+  return tex;
+}
 
 function pipTexture(value, schemeName = 'red') {
   const scheme = SCHEMES[schemeName] || SCHEMES.red;
@@ -52,20 +118,25 @@ function pipTexture(value, schemeName = 'red') {
     ctx.fillRect(Math.random()*size, Math.random()*size, 1, 1);
   }
 
-  const positions = {
-    1: [[0.5, 0.5]],
-    2: [[0.27, 0.27], [0.73, 0.73]],
-    3: [[0.27, 0.27], [0.5, 0.5], [0.73, 0.73]],
-    4: [[0.27, 0.27], [0.73, 0.27], [0.27, 0.73], [0.73, 0.73]],
-    5: [[0.27, 0.27], [0.73, 0.27], [0.5, 0.5], [0.27, 0.73], [0.73, 0.73]],
-    6: [[0.27, 0.27], [0.73, 0.27], [0.27, 0.5], [0.73, 0.5], [0.27, 0.73], [0.73, 0.73]],
-  };
-
   const drawPip = (cx, cy, r) => {
+    // Dark contact-shadow ring just outside the pip — sells the indent depth
+    // and gives a visible border against the reflective body.
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
+    ctx.fill();
+    // Sharper, darker outline ring (the small circle the user asked for)
+    ctx.strokeStyle = scheme.pipBorder;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 1.2, 0, Math.PI * 2);
+    ctx.stroke();
+    // Drop-shadow under the pip
     ctx.fillStyle = scheme.pipShadow;
     ctx.beginPath();
     ctx.arc(cx + 1, cy + 2, r, 0, Math.PI * 2);
     ctx.fill();
+    // Main pip with subtle gradient
     const pg = ctx.createRadialGradient(cx - r*0.3, cy - r*0.3, 1, cx, cy, r);
     pg.addColorStop(0, scheme.pipInner);
     pg.addColorStop(0.7, scheme.pipMid);
@@ -74,6 +145,7 @@ function pipTexture(value, schemeName = 'red') {
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
+    // Tiny shine
     ctx.fillStyle = scheme.pipHighlight;
     ctx.beginPath();
     ctx.arc(cx - r*0.35, cy - r*0.35, r*0.3, 0, Math.PI * 2);
@@ -81,7 +153,7 @@ function pipTexture(value, schemeName = 'red') {
   };
 
   const baseR = value === 1 ? 32 : 22;
-  for (const [px, py] of positions[value]) {
+  for (const [px, py] of PIP_POSITIONS[value]) {
     drawPip(px * size, py * size, baseR);
   }
 
@@ -227,9 +299,13 @@ function makeDieMaterials(scheme) {
   const isGold = scheme === 'gold';
 
   const faceMats = FACE_VALUES.map(v => {
+    const baseR = v === 1 ? 32 : 22;
+    const normalTex = pipNormalMap(v, 256, baseR);
     if (isGold) {
       return new THREE.MeshPhysicalMaterial({
         map: pipTexture(v, scheme),
+        normalMap: normalTex,
+        normalScale: new THREE.Vector2(0.7, 0.7),
         roughness: 0.22, metalness: 0.85,
         clearcoat: 0.5, clearcoatRoughness: 0.12,
         sheen: 0.1, sheenColor: new THREE.Color(0xffffff),
@@ -239,6 +315,8 @@ function makeDieMaterials(scheme) {
     // very low roughness, and strong env-map reflections from the casino IBL.
     return new THREE.MeshPhysicalMaterial({
       map: pipTexture(v, scheme),
+      normalMap: normalTex,
+      normalScale: new THREE.Vector2(0.6, 0.6),
       color: new THREE.Color('#ffffff'),     // let the texture supply color
       roughness: 0.08,
       metalness: 0.0,
