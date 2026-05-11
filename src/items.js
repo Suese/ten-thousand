@@ -24,7 +24,7 @@ export const ITEMS = {
   flick: {
     name: 'Flick',
     icon: '👆',
-    cost: 100,
+    cost: 75,
     desc: "Click any un-locked die to send it tumbling. Aim where you want.",
     when: 'anytime',
     needsAim: 'die',
@@ -32,7 +32,7 @@ export const ITEMS = {
   dookie: {
     name: 'Dookie Throw',
     icon: '💩',
-    cost: 75,
+    cost: 50,
     desc: "Aim and click anywhere on the table — splatters 7 sticky blobs in a shotgun spread.",
     when: 'anytime',
     needsAim: 'point',
