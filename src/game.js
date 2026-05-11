@@ -118,7 +118,7 @@ export class GameRoom {
   _scheduleThrow() {
     if (this._rollPending) return;
     this._rollPending = true;
-    const SHAKE_MIN_MS = 2000;
+    const SHAKE_MIN_MS = 1000;
     const elapsed = Date.now() - (this._shakeStartTs || Date.now());
     const remaining = Math.max(0, SHAKE_MIN_MS - elapsed);
     const doThrow = () => {
