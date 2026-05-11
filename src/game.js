@@ -929,6 +929,11 @@ export class GameRoom {
       // bust evaluation so we don't briefly flash a "Bust in 5s" banner just
       // because the un-banked dice no longer score on their own.
       this._bankingInProgress = true;
+      // Drop out of awaiting_keep right away so the active player's Keep /
+      // Bank buttons disappear the instant they click bank — they won't come
+      // back until the next player's turn flips phase to awaiting_roll.
+      this.phase = 'rolling';
+      this.emitState();
       // New flow: unbanked dice Q-flash out at t=0, banked dice lerp into the
       // keep row (also at t=0), then once the lerp finishes the coin bursts
       // fire 0.75 s apart. By the time the bursts run there's nothing else on
