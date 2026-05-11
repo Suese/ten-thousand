@@ -414,6 +414,9 @@ export class GameRoom {
     if (byId !== this.hostId) return;
     if (this.phase !== 'lobby') return;
     if (this.players.length < 1) return;
+    // Fresh game — wipe every player's shop inventory so leftovers from a
+    // previous match don't carry over.
+    this.inventories = {};
     this.beginOpeningRoll();
   }
 

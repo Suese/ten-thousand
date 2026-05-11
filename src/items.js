@@ -17,7 +17,7 @@ export const ITEMS = {
   portable_hole: {
     name: 'Portable Hole',
     icon: '🕳️',
-    cost: 300,
+    cost: 250,
     desc: "Suck a random un-locked die into the void. It comes back after one roll.",
     when: 'anytime',
   },
@@ -40,14 +40,14 @@ export const ITEMS = {
   ice_rink: {
     name: 'Ice Rink',
     icon: '🧊',
-    cost: 150,
+    cost: 125,
     desc: 'Turn the felt into a sheet of ice — dice slide and bounce forever, much easier to flick.',
     when: 'anytime',
   },
   tornado: {
     name: 'Tornado',
     icon: '🌪️',
-    cost: 250,
+    cost: 200,
     desc: 'Click any un-locked die to spin it into a tornado that knocks the other dice all over the table.',
     when: 'anytime',
     needsAim: 'die',
