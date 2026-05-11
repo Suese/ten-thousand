@@ -72,13 +72,31 @@ export class DicePhysics {
     for (const body of this.bodies) {
       const selfIdx = this.bodies.indexOf(body);
       body.addEventListener('collide', (event) => {
+        const otherIsDie = dieBodySet.has(event.body);
+        const otherIdx = otherIsDie ? this.bodies.indexOf(event.body) : -1;
+
+        // Tornado kick — if this die IS the tornado and it hit another die,
+        // hurl that die with a big random impulse + chaotic angular velocity.
+        // Only the saw blade's listener applies the impulse (otherwise we'd
+        // double-kick — every collision fires both bodies' listeners).
+        if (otherIsDie && selfIdx === this.sawBladeIndex) {
+          const victim = event.body;
+          victim.wakeUp();
+          const kx = (Math.random() - 0.5) * 14;
+          const ky = 4 + Math.random() * 4;
+          const kz = (Math.random() - 0.5) * 14;
+          victim.velocity.x += kx;
+          victim.velocity.y = Math.max(victim.velocity.y, ky);
+          victim.velocity.z += kz;
+          victim.angularVelocity.x += (Math.random() - 0.5) * 30;
+          victim.angularVelocity.y += (Math.random() - 0.5) * 30;
+          victim.angularVelocity.z += (Math.random() - 0.5) * 30;
+        }
+
         if (!this.onCollision) return;
         const speed = Math.abs(event.contact.getImpactVelocityAlongNormal?.() ?? 0);
         if (speed < 1.2) return;
-        const otherIsDie = dieBodySet.has(event.body);
         const intensity = Math.min(1, speed / 8);
-        const otherIdx = otherIsDie ? this.bodies.indexOf(event.body) : -1;
-        // World-space contact point (midpoint of the two bodies for simplicity).
         const ax = body.position.x, ay = body.position.y, az = body.position.z;
         const bx = event.body.position?.x ?? ax, by = event.body.position?.y ?? ay, bz = event.body.position?.z ?? az;
         const point = otherIsDie
@@ -224,31 +242,37 @@ export class DicePhysics {
     this._sawBladeTimer = 0;
     const b = this.bodies[dieIndex];
     b.wakeUp();
-    // Massive spin, modest hop to start.
-    b.velocity.set((Math.random() - 0.5) * 6, 2 + Math.random() * 2, (Math.random() - 0.5) * 6);
-    b.angularVelocity.set(0, 0, 0);
+    // Big initial velocity + chaotic spin on every axis (was modest).
+    b.velocity.set((Math.random() - 0.5) * 12, 3 + Math.random() * 3, (Math.random() - 0.5) * 12);
+    b.angularVelocity.set(
+      (Math.random() - 0.5) * 50,
+      40 + (Math.random() - 0.5) * 30,
+      (Math.random() - 0.5) * 50,
+    );
     if (!this.activeIndices.includes(dieIndex)) this.activeIndices.push(dieIndex);
   }
 
   tickSawBlade(dieIndex, dt) {
     const b = this.bodies[dieIndex];
     b.wakeUp();
-    // Pin a constant fast spin around y.
-    b.angularVelocity.y = 38;
-    b.angularVelocity.x *= 0.8;
-    b.angularVelocity.z *= 0.8;
-    // Periodic random impulses so it bounces around erratically.
+    // Pin a HUGE spin around y, plus chaotic x/z so the die looks completely
+    // out of control instead of orderly-pinwheel.
+    b.angularVelocity.y = 65 + (Math.random() - 0.5) * 30;
+    b.angularVelocity.x += (Math.random() - 0.5) * 8;
+    b.angularVelocity.z += (Math.random() - 0.5) * 8;
+    // Cap the chaotic axes so they don't blow up to NaN.
+    b.angularVelocity.x = Math.max(-40, Math.min(40, b.angularVelocity.x));
+    b.angularVelocity.z = Math.max(-40, Math.min(40, b.angularVelocity.z));
+
+    // Random linear impulses — bigger and more frequent than before.
     this._sawBladeTimer += dt;
-    if (this._sawBladeTimer > 0.18) {
+    if (this._sawBladeTimer > 0.08) {
       this._sawBladeTimer = 0;
-      const ax = (Math.random() - 0.5) * 7;
-      const az = (Math.random() - 0.5) * 7;
-      b.velocity.x += ax;
-      b.velocity.z += az;
-      if (b.velocity.y < 0.5) b.velocity.y += 1.2;
+      b.velocity.x += (Math.random() - 0.5) * 18;
+      b.velocity.z += (Math.random() - 0.5) * 18;
+      if (b.velocity.y < 1) b.velocity.y += 2.8;
     }
-    // Keep it from escaping the table (clamp loosely).
-    if (b.position.y < 0.4) b.velocity.y += 4 * dt * 5;
+    if (b.position.y < 0.4) b.velocity.y += 8 * dt;
   }
 
   endSawBlade(dieIndex) {
