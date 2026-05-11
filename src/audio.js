@@ -30,6 +30,7 @@ const OVERRIDES = {
   tableSaw:        'tornado',
   whack:           'tornado_hit',
   portableHole:    'portable_hole',
+  clockTick:       'clock_tick',
 };
 
 export class SoundFX {
@@ -473,6 +474,15 @@ export class SoundFX {
     this.tone(180, 0.12, 'square', 0.45);
     this.tone(60, 0.2, 'sine', 0.4);
     scheduleAfter(30, () => this.tone(40, 0.25, 'sine', 0.25));
+  }
+
+  // Short clock-tick — a sharp tock plus a tail click. Used for the last 5 s
+  // of any turn countdown to add urgency.
+  clockTick() {
+    if (this._playOverride('clockTick', null, 0.05)) return;
+    if (!this.ctx || this.muted) return;
+    this.tone(2400, 0.025, 'square', 0.18);
+    this.tone(1700, 0.04, 'sine', 0.10);
   }
 
   // Ominous descending vortex (portable hole).

@@ -60,6 +60,26 @@ scene.onTick(() => {
   ui.tickBustCountdown(currentState, myId);
 });
 
+// Clock-tick sfx for the final 5 s of either the turn-start countdown or the
+// play timer. Fires once per second-boundary change.
+let _lastTickSec = 0;
+scene.onTick(() => {
+  if (!currentState) { _lastTickSec = 0; return; }
+  let remaining = 0;
+  const now = Date.now();
+  if (currentState.phase === 'awaiting_keep' && currentState.playTimerTs) {
+    remaining = Math.max(0, Math.ceil((currentState.playTimerTs - now) / 1000));
+  } else if (currentState.phase === 'awaiting_roll' && currentState.turnTimeoutTs) {
+    remaining = Math.max(0, Math.ceil((currentState.turnTimeoutTs - now) / 1000));
+  }
+  if (remaining >= 1 && remaining <= 5 && remaining !== _lastTickSec) {
+    _lastTickSec = remaining;
+    sfx.clockTick();
+  } else if (remaining === 0 || remaining > 5) {
+    _lastTickSec = 0;
+  }
+});
+
 // Reposition the action bar only when it's actually in the player's way:
 // during `awaiting_keep`, only considering still-selectable (un-locked) dice.
 // Runs at 2 Hz so the move is subtle, animated by CSS transition (0.35 s).

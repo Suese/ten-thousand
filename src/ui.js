@@ -322,6 +322,29 @@ export function tickBustCountdown(state, myId) {
     return;
   }
 
+  // Play timer (awaiting_keep): only shown in the last 5 s, then expiry =
+  // auto-bust on the host. Suppressed while bust grace is already pending
+  // (handled above) so the two countdowns don't compete.
+  if (
+    state.phase === 'awaiting_keep'
+    && state.playTimerTs
+    && state.playTimerTs > Date.now()
+    && state.playTimerTs - Date.now() <= 5000
+  ) {
+    if (!banner.classList.contains('shaking')) banner.classList.add('shaking');
+    const remaining = Math.max(1, Math.ceil((state.playTimerTs - Date.now()) / 1000));
+    if (remaining === _bannerLastShownSec && _bannerLastShownKind === 'play') return;
+    _bannerLastShownSec = remaining;
+    _bannerLastShownKind = 'play';
+    const player = state.players.find(p => p.id === state.currentPlayerId);
+    const c = colorForPlayer(state, state.currentPlayerId);
+    banner.innerHTML =
+      `<span class="banner-name" style="color:${c}">${player?.name || '...'}</span> ` +
+      `<span class="turn-pts">+${state.turnPoints || 0}</span> ` +
+      `<span class="banner-bust-pending">Skip in ${remaining}s</span>`;
+    return;
+  }
+
   // Turn-start auto-pass timeout.
   if (state.phase === 'awaiting_roll' && state.turnTimeoutTs && state.turnTimeoutTs > Date.now()) {
     const remaining = Math.max(1, Math.ceil((state.turnTimeoutTs - Date.now()) / 1000));

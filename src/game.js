@@ -8,6 +8,9 @@ const DOOKIE_DURATION_MS = 30000;
 const SAW_BLADE_DURATION_MS = 8000;
 const BUST_GRACE_MS = 5000;
 const TURN_TIMEOUT_MS = 15000;
+// Time the active player has to commit (keep / bank / use item) after the
+// dice settle. Expiry = instant bust. Resets whenever the dice are disturbed.
+const PLAY_TIMER_MS = 20000;
 
 // Authoritative game-state machine. Lives only on the host.
 //
@@ -479,6 +482,7 @@ export class GameRoom {
     this._rollPending = false;
     this._shaking = false;
     this._bankingInProgress = false;
+    this._playTimerTs = null;
     this.physics.parkAll();
     // Clear turn-scoped item effects.
     this.activeEffects.destroyed.clear();
@@ -515,14 +519,19 @@ export class GameRoom {
     const holes = (this.activeEffects.portableHole[playerId] || []).slice();
 
     const active = [];
-    const lockedTransforms = [];
+    const lockedIndices = [];
     for (let i = 0; i < this.diceState.length; i++) {
       if (this.diceState[i].locked) {
-        lockedTransforms.push({ index: i, value: this.diceState[i].value });
+        lockedIndices.push(i);
       } else if (!holes.includes(i)) {
         active.push(i);
       }
     }
+    // Sort locked dice left → right by current body X so the j-indexing here
+    // matches the order commit() used to position them. Otherwise the throw
+    // would snap them to a different j-layout than where the lerp landed.
+    lockedIndices.sort((a, b) => this.physics.bodies[a].position.x - this.physics.bodies[b].position.x);
+    const lockedTransforms = lockedIndices.map(i => ({ index: i, value: this.diceState[i].value }));
     // Hot dice: if everything was locked, reroll all five (clears portable holes too).
     if (active.length === 0 && holes.length === 0) {
       this.diceState = freshDice();
@@ -654,8 +663,43 @@ export class GameRoom {
       if (!this._bankingInProgress) {
         this._checkAwaitingKeepDisturbances();
         if (this._evaluateBustState()) this.emitState();
+        // Play timer: any unstable die means dice are still in motion — push
+        // expiry forward so the player gets the full 20 s once they actually
+        // settle again. Otherwise, if expired without a pending bust grace,
+        // force a bust for inactivity.
+        if (this._playTimerTs && this._anyDieUnstable()) {
+          this._playTimerTs = Date.now() + PLAY_TIMER_MS;
+        } else if (
+          this._playTimerTs
+          && !this._bustPendingTs
+          && Date.now() >= this._playTimerTs
+        ) {
+          this._playTimerTs = null;
+          this._bustPendingPlayer = this.order[this.currentIdx];
+          this._bustPendingLost = this.turnPoints;
+          this.emitEvent({
+            type: 'log',
+            text: `${this.nameOf(this._bustPendingPlayer)} ran out of time.`,
+            kind: 'bust',
+          });
+          this._fireBust();
+        }
       }
     }
+  }
+
+  // True if any non-locked, non-destroyed, non-hiddenNow die is currently
+  // mid-tumble. Used by the play timer so it doesn't expire mid-disturbance.
+  _anyDieUnstable() {
+    const faceStates = this.physics.getFaceStates();
+    for (let i = 0; i < this.diceState.length; i++) {
+      if (this.diceState[i].locked) continue;
+      if (this.activeEffects.destroyed.has(i)) continue;
+      if (this.activeEffects.hiddenNow.has(i)) continue;
+      const fs = faceStates[i];
+      if (fs && !fs.stable) return true;
+    }
+    return false;
   }
 
   _checkAwaitingKeepDisturbances() {
@@ -724,6 +768,7 @@ export class GameRoom {
         locked: this.diceState.map(d => d.locked),
       });
       this.phase = 'awaiting_keep';
+      this._playTimerTs = Date.now() + PLAY_TIMER_MS;
       this._evaluateBustState();
       this.emitState();
       return;
@@ -767,6 +812,9 @@ export class GameRoom {
     // and as a one-shot here so the immediate state broadcast carries the
     // correct pending status.
     this.phase = 'awaiting_keep';
+    // Start the play timer — player has PLAY_TIMER_MS to act before they get
+    // auto-busted. Disturbances during awaiting_keep reset this from the tick.
+    this._playTimerTs = Date.now() + PLAY_TIMER_MS;
     this._evaluateBustState();
     this.emitState();
   }
@@ -777,6 +825,7 @@ export class GameRoom {
     this._bustPendingTs = null;
     this._bustPendingPlayer = null;
     this._bustPendingLost = 0;
+    this._playTimerTs = null;
     this.phase = 'busted';
     const visibleIndices = [];
     for (let i = 0; i < this.diceState.length; i++) {
@@ -878,24 +927,33 @@ export class GameRoom {
     for (const i of indexSet) this.diceState[i].locked = true;
     this.selection = [];
     this.turnPoints += evalRes.score;
+    // Player acted in time — stop the play timer until dice settle again.
+    this._playTimerTs = null;
     this.emitEvent({ type: 'score', playerId: byId, score: evalRes.score, kept: keepValues, turnPoints: this.turnPoints });
     this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} keeps ${formatKept(keepValues)} for +${evalRes.score}.` });
 
     // Snap every locked die to its kept-row pose in physics, and emit a
     // 'kept_animation' event so clients can smoothly lerp the meshes from
     // their landed positions into the row, one at a time.
-    const keptTargets = [];
-    let jj = 0;
+    //
+    // Sort by CURRENT body X so each die takes the shortest path to its slot.
+    // Previously-kept dice (already at leftmost positions) keep their slots
+    // instead of getting bumped right when a new die with a lower dice-index
+    // is locked — which used to make them appear to "start on the left then
+    // slide back into position".
+    const lockedIndices = [];
     for (let i = 0; i < this.diceState.length; i++) {
-      if (!this.diceState[i].locked) continue;
+      if (this.diceState[i].locked) lockedIndices.push(i);
+    }
+    lockedIndices.sort((a, b) => this.physics.bodies[a].position.x - this.physics.bodies[b].position.x);
+    const keptTargets = [];
+    for (let jj = 0; jj < lockedIndices.length; jj++) {
+      const i = lockedIndices[jj];
       const tgt = keptTargetTransform(jj, this.diceState[i].value);
-      // Destroyed dice still occupy a kept-row slot for j-indexing (matches
-      // physics.throwDice) but we skip animating them — they're invisible.
       if (!this.activeEffects.destroyed.has(i)) {
         keptTargets.push({ index: i, value: this.diceState[i].value, ...tgt });
         snapBodyToTransform(this.physics.bodies[i], tgt);
       }
-      jj++;
     }
     keptTargets.sort((a, b) => a.x - b.x);
     const lerpPerDieMs = 250;
@@ -1082,6 +1140,7 @@ export class GameRoom {
       hiddenNow: [...this.activeEffects.hiddenNow],
       bustPendingUntilTs: this._bustPendingTs || null,
       turnTimeoutTs: this._turnTimeoutTs || null,
+      playTimerTs: this._playTimerTs || null,
       shaking: !!this._shaking,
       inHand: (this._inHand || []).slice(),
       hiddenIndices: this._hiddenForRoll || [],
