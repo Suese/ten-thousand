@@ -9,7 +9,7 @@ export const ITEMS = {
   weighted: {
     name: 'Weighted Die',
     icon: '🎲',
-    cost: 50,
+    cost: 100,
     desc: 'Click an un-locked die to weight it toward 1 (or pick at random pre-roll). The bias only catches if the die has enough momentum.',
     when: 'anytime',
     needsAim: 'die',
@@ -17,7 +17,7 @@ export const ITEMS = {
   portable_hole: {
     name: 'Portable Hole',
     icon: '🕳️',
-    cost: 500,
+    cost: 300,
     desc: "Suck a random un-locked die into the void. It comes back after one roll.",
     when: 'anytime',
   },
@@ -32,7 +32,7 @@ export const ITEMS = {
   dookie: {
     name: 'Dookie Throw',
     icon: '💩',
-    cost: 250,
+    cost: 75,
     desc: "Aim and click anywhere on the table — splatters 7 sticky blobs in a shotgun spread.",
     when: 'anytime',
     needsAim: 'point',
@@ -47,7 +47,7 @@ export const ITEMS = {
   tornado: {
     name: 'Tornado',
     icon: '🌪️',
-    cost: 400,
+    cost: 250,
     desc: 'Click any un-locked die to spin it into a tornado that knocks the other dice all over the table.',
     when: 'anytime',
     needsAim: 'die',
