@@ -5,8 +5,9 @@ import { MAX_PLAYERS } from './colors.js';
 
 const WIN_SCORE = 10000;
 const DOOKIE_DURATION_MS = 30000;
-const SAW_BLADE_DURATION_MS = 4000;
+const SAW_BLADE_DURATION_MS = 8000;
 const BUST_GRACE_MS = 5000;
+const TURN_TIMEOUT_MS = 15000;
 
 // Authoritative game-state machine. Lives only on the host.
 //
@@ -352,6 +353,7 @@ export class GameRoom {
       this.turnPoints = 0;
       this.diceState = freshDice();
       this.phase = 'awaiting_roll';
+      this._turnTimeoutTs = Date.now() + TURN_TIMEOUT_MS;
       this.emitEvent({ type: 'log', text: `${this.nameOf(this.order[this.currentIdx])}'s turn.` });
     }
     this.emitState();
@@ -424,6 +426,7 @@ export class GameRoom {
     this.diceState = freshDice();
     this.selection = [];
     this.phase = 'awaiting_roll';
+    this._turnTimeoutTs = Date.now() + TURN_TIMEOUT_MS;
     this.physics.parkAll();
     // Clear turn-scoped item effects.
     this.activeEffects.destroyed.clear();
@@ -444,6 +447,7 @@ export class GameRoom {
   requestRoll(byId) {
     if (this.phase !== 'awaiting_roll') return;
     if (this.order[this.currentIdx] !== byId) return;
+    this._turnTimeoutTs = null; // player got the roll in before the limit
     this.beginRoll();
   }
 
@@ -486,6 +490,15 @@ export class GameRoom {
   // --- Physics tick: called by host's render loop ---
 
   tick(dt) {
+    // Turn-start auto-pass: 15 s to begin the turn or you're skipped.
+    if (this.phase === 'awaiting_roll' && this._turnTimeoutTs && Date.now() >= this._turnTimeoutTs) {
+      const playerId = this.order[this.currentIdx];
+      this._turnTimeoutTs = null;
+      this.emitEvent({ type: 'log', text: `${this.nameOf(playerId)} ran out of time — turn skipped.`, kind: 'bust' });
+      this.endTurn();
+      return;
+    }
+
     // (Ice rink no longer time-expires; it lives until the next startTurn.)
     if (this.activeEffects.dookieZones.length) {
       const before = this.activeEffects.dookieZones.length;
@@ -863,6 +876,7 @@ export class GameRoom {
       weightedDice: [...this.activeEffects.weightedDice],
       hiddenNow: [...this.activeEffects.hiddenNow],
       bustPendingUntilTs: this._bustPendingTs || null,
+      turnTimeoutTs: this._turnTimeoutTs || null,
       hiddenIndices: this._hiddenForRoll || [],
       dookieZones: this.activeEffects.dookieZones.map(z => ({ ...z })),
       iceRinkActive: this.activeEffects.iceRinkActive,

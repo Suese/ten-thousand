@@ -336,6 +336,13 @@ button.primary:hover:not(:disabled) {
   letter-spacing: 0.15em;
   text-shadow: 0 0 14px rgba(255, 80, 110, 0.8), 0 2px 8px rgba(0,0,0,0.95);
 }
+#turn-banner .banner-pass-pending {
+  color: #b8c1d4;
+  font-weight: 600;
+  margin-left: 10px;
+  letter-spacing: 0.03em;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+}
 #turn-banner .banner-bust-pending {
   color: #ffaa3c;
   font-weight: 800;
@@ -452,6 +459,17 @@ button.primary:hover:not(:disabled) {
 #roll-btn:hover:not(:disabled) {
   background: linear-gradient(180deg, #7da7ff 0%, #4866e0 100%);
   box-shadow: 0 0 22px rgba(120, 170, 255, 0.55);
+}
+/* Rapid wiggle while the Roll button is being held — visual tension. */
+#roll-btn.held {
+  background: linear-gradient(180deg, #ffa05c 0%, #ff5050 100%);
+  border-color: #ffa066;
+  box-shadow: 0 0 28px rgba(255, 130, 80, 0.85);
+  animation: rollbtn-wiggle 0.06s linear infinite alternate;
+}
+@keyframes rollbtn-wiggle {
+  0%   { transform: translate(-1.5px, 1px) rotate(-1deg); }
+  100% { transform: translate(1.5px, -1px) rotate(1deg); }
 }
 #selection-info {
   font-size: 13px;

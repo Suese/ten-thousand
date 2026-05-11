@@ -180,8 +180,32 @@ ui.bindWaiting({
   },
 });
 
+// Hold-to-roll mechanic: pressing the Roll button starts the dice-shake
+// audio (continuously) and tagging the button with a wiggle. Releasing the
+// mouse / lifting the finger anywhere fires the actual roll. Adds tension.
+let _rollHolding = false;
+let _rollShakeInterval = null;
+function startRollHold() {
+  if (_rollHolding) return;
+  if (!currentState || currentState.phase !== 'awaiting_roll') return;
+  if (currentState.currentPlayerId !== myId) return;
+  _rollHolding = true;
+  sfx.diceShake();
+  _rollShakeInterval = setInterval(() => sfx.diceShake(), 320);
+  document.getElementById('roll-btn')?.classList.add('held');
+}
+function releaseRollHold() {
+  if (!_rollHolding) return;
+  _rollHolding = false;
+  if (_rollShakeInterval) clearInterval(_rollShakeInterval);
+  _rollShakeInterval = null;
+  document.getElementById('roll-btn')?.classList.remove('held');
+  sendAction({ name: 'request_roll' });
+}
+
 ui.bindGame({
-  onRoll: () => sendAction({ name: 'request_roll' }),
+  onRollHold: startRollHold,
+  onRollRelease: releaseRollHold,
   onKeepReroll: () => commitSelection('reroll'),
   onKeepBank: () => commitSelection('bank'),
 });
@@ -598,7 +622,7 @@ function applyEvent(event) {
         flick:         () => sfx.slap(),
         dookie:        () => sfx.fart(),
         ice_rink:      () => sfx.swordUnsheathe(),
-        tornado:       () => sfx.tableSaw(4),
+        tornado:       () => sfx.tableSaw(8),
       };
       idMap[event.itemId]?.();
       const cx = window.innerWidth / 2, cy = window.innerHeight / 2;

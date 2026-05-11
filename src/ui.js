@@ -194,8 +194,23 @@ export function bindWaiting({ onCopy, onStart }) {
   els.startBtn().addEventListener('click', onStart);
 }
 
-export function bindGame({ onRoll, onKeepReroll, onKeepBank }) {
-  els.rollBtn().addEventListener('click', onRoll);
+export function bindGame({ onRollHold, onRollRelease, onKeepReroll, onKeepBank }) {
+  const rollBtn = els.rollBtn();
+  // Hold-to-shake, release-anywhere-to-throw. mouseup / touchend listen at the
+  // window level so the player can release outside the button.
+  rollBtn.addEventListener('mousedown', (e) => {
+    if (rollBtn.disabled) return;
+    e.preventDefault();
+    onRollHold?.();
+  });
+  rollBtn.addEventListener('touchstart', (e) => {
+    if (rollBtn.disabled) return;
+    e.preventDefault();
+    onRollHold?.();
+  }, { passive: false });
+  window.addEventListener('mouseup', () => onRollRelease?.());
+  window.addEventListener('touchend', () => onRollRelease?.());
+
   els.keepBtn().addEventListener('click', onKeepReroll);
   els.bankBtn().addEventListener('click', onKeepBank);
 }
@@ -265,35 +280,63 @@ export function renderGameState(state, myId) {
   els.bankBtn().style.display = inKeepPhase ? '' : 'none';
 }
 
-// Per-frame ticker — lets the bust countdown text decrement live without
-// requiring the host to spam state updates every second. Also toggles the
-// shake class on the banner whenever a bust is incoming.
+// Per-frame ticker — lets the bust countdown AND the turn-start countdown
+// decrement live without requiring the host to spam state updates every second.
+// Also toggles the shake class on the banner whenever a critical countdown is
+// active.
 let _bannerLastShownSec = -1;
+let _bannerLastShownKind = null;
 export function tickBustCountdown(state, myId) {
   const banner = els.turnBanner();
-  const active = !!(state && state.bustPendingUntilTs && state.bustPendingUntilTs > Date.now());
-  if (!active) {
-    _bannerLastShownSec = -1;
-    banner.classList.remove('shaking');
+  if (!state) return;
+
+  // Bust grace takes priority.
+  if (state.bustPendingUntilTs && state.bustPendingUntilTs > Date.now()) {
+    if (!banner.classList.contains('shaking')) banner.classList.add('shaking');
+    const remaining = Math.max(1, Math.ceil((state.bustPendingUntilTs - Date.now()) / 1000));
+    if (remaining === _bannerLastShownSec && _bannerLastShownKind === 'bust') return;
+    _bannerLastShownSec = remaining;
+    _bannerLastShownKind = 'bust';
+    const player = state.players.find(p => p.id === state.currentPlayerId);
+    const c = colorForPlayer(state, state.currentPlayerId);
+    banner.innerHTML =
+      `<span class="banner-name" style="color:${c}">${player?.name || '...'}</span> ` +
+      `<span class="banner-bust-pending">Bust in ${remaining}s</span>`;
     return;
   }
-  if (!banner.classList.contains('shaking')) banner.classList.add('shaking');
-  const remaining = Math.max(1, Math.ceil((state.bustPendingUntilTs - Date.now()) / 1000));
-  if (remaining === _bannerLastShownSec) return;
-  _bannerLastShownSec = remaining;
-  const player = state.players.find(p => p.id === state.currentPlayerId);
-  const c = colorForPlayer(state, state.currentPlayerId);
-  banner.innerHTML =
-    `<span class="banner-name" style="color:${c}">${player?.name || '...'}</span> ` +
-    `<span class="banner-bust-pending">Bust in ${remaining}s</span>`;
+
+  // Turn-start auto-pass timeout.
+  if (state.phase === 'awaiting_roll' && state.turnTimeoutTs && state.turnTimeoutTs > Date.now()) {
+    const remaining = Math.max(1, Math.ceil((state.turnTimeoutTs - Date.now()) / 1000));
+    // Shake when ≤ 5 s remaining for visual urgency.
+    if (remaining <= 5) { if (!banner.classList.contains('shaking')) banner.classList.add('shaking'); }
+    else { banner.classList.remove('shaking'); }
+    if (remaining === _bannerLastShownSec && _bannerLastShownKind === 'pass') return;
+    _bannerLastShownSec = remaining;
+    _bannerLastShownKind = 'pass';
+    const player = state.players.find(p => p.id === state.currentPlayerId);
+    const c = colorForPlayer(state, state.currentPlayerId);
+    const cls = remaining <= 5 ? 'banner-bust-pending' : 'banner-pass-pending';
+    banner.innerHTML =
+      `<span class="banner-name" style="color:${c}">${player?.name || '...'}</span> ` +
+      `<span class="turn-pts">+${state.turnPoints || 0}</span> ` +
+      `<span class="${cls}">Pass in ${remaining}s</span>`;
+    return;
+  }
+
+  // No countdown active — clear our flags so the regular banner from
+  // renderGameState stands.
+  _bannerLastShownSec = -1;
+  _bannerLastShownKind = null;
+  banner.classList.remove('shaking');
 }
 
 export function updateSelectionUI(selectedValues, turnPoints, opts = {}) {
   const info = els.selectionInfo();
   const eligibleCount = opts.eligibleCount ?? -1;
-  // "Hot dice imminent": all 5 dice were on the table and the player selected all of them.
-  // The next roll will reroll all 5 with banked turn points preserved — show only Roll.
-  const hotDicePending = eligibleCount === 5 && selectedValues.length === 5;
+  // "Hot dice imminent": the player has selected every eligible die. Locking them
+  // all means the next roll uses all 5 — show only Roll, hide Bank.
+  const hotDicePending = eligibleCount > 0 && selectedValues.length === eligibleCount;
 
   if (selectedValues.length === 0) {
     info.innerHTML = `<span>Click dice to keep them. <strong>+${turnPoints}</strong> banked this turn.</span>`;
