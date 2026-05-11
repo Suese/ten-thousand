@@ -1,6 +1,8 @@
 // Casino-style particle effects: confetti, coin shower, score popups.
 // All DOM-based — no canvas needed, easy to layer over the three.js scene.
 
+import { scheduleAfter } from './clock.js';
+
 const COLORS = ['#ffe07a', '#ffb347', '#ff7c8a', '#7cf3a0', '#5a9bff', '#d96cff', '#ffd400', '#ff5cf2'];
 
 function pickColor() {
@@ -46,7 +48,7 @@ export function confettiBurst(x, y, count = 40) {
 export function coinShower(x, y, count = 30, durationMs = null) {
   const window = durationMs ?? Math.max(600, count * 25);
   for (let i = 0; i < count; i++) {
-    setTimeout(() => {
+    scheduleAfter((i / count) * window, () => {
       const el = document.createElement('div');
       el.className = 'coin';
       el.textContent = '$';
@@ -57,7 +59,7 @@ export function coinShower(x, y, count = 30, durationMs = null) {
       const vx = Math.cos(angle) * speed;
       const vy = Math.sin(angle) * speed;
       spawn(el, vx, vy, 1500, 1.8, (Math.random() - 0.5) * 720);
-    }, (i / count) * window);
+    });
   }
 }
 
@@ -72,7 +74,7 @@ export function scorePopup(text, x, y, opts = {}) {
   el.style.left = x + 'px';
   el.style.top = y + 'px';
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 1800);
+  scheduleAfter(1800, () => el.remove());
 }
 
 export function flashScreen(color = '#ffe07a', alpha = 0.35) {
@@ -81,7 +83,7 @@ export function flashScreen(color = '#ffe07a', alpha = 0.35) {
   el.style.background = color;
   el.style.opacity = String(alpha);
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 500);
+  scheduleAfter(500, () => el.remove());
 }
 
 export function shake(targetEl, intensity = 6, duration = 350) {
@@ -131,7 +133,7 @@ export function comicBurst(x, y, text = 'POW!') {
   el.style.setProperty('--burst-rot', rot + 'deg');
   el.innerHTML = `<span>${text}</span>`;
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 900);
+  scheduleAfter(900, () => el.remove());
 }
 export function comicBurstFlick(x, y) {
   comicBurst(x, y, FLICK_WORDS[(Math.random() * FLICK_WORDS.length) | 0]);
@@ -149,14 +151,14 @@ export function qFlash(x, y) {
   el.style.top = y + 'px';
   el.innerHTML = '<span class="q-flash-core"></span><span class="q-flash-ray"></span><span class="q-flash-ray2"></span>';
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 700);
+  scheduleAfter(700, () => el.remove());
 }
 
 // Compact coin burst — spawns coins from a single point with a short window.
 // Used when a die "turns into" coins on bank.
 export function coinBurst(x, y, count = 14) {
   for (let i = 0; i < count; i++) {
-    setTimeout(() => {
+    scheduleAfter(i * 18, () => {
       const el = document.createElement('div');
       el.className = 'coin';
       el.textContent = '$';
@@ -167,7 +169,7 @@ export function coinBurst(x, y, count = 14) {
       const vx = Math.cos(angle) * speed;
       const vy = Math.sin(angle) * speed;
       spawn(el, vx, vy, 1400, 1.3 + Math.random() * 0.3, (Math.random() - 0.5) * 720);
-    }, i * 18);
+    });
   }
 }
 

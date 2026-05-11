@@ -778,7 +778,13 @@ export class GameRoom {
     this._bustPendingPlayer = null;
     this._bustPendingLost = 0;
     this.phase = 'busted';
-    this.emitEvent({ type: 'bust', playerId: player, lost });
+    const visibleIndices = [];
+    for (let i = 0; i < this.diceState.length; i++) {
+      if (this.activeEffects.destroyed.has(i)) continue;
+      if (this.activeEffects.hiddenNow.has(i)) continue;
+      visibleIndices.push(i);
+    }
+    this.emitEvent({ type: 'bust', playerId: player, lost, indices: visibleIndices });
     this.emitEvent({ type: 'log', text: `${this.nameOf(player)} busted! Lost ${lost}.`, kind: 'bust' });
     this.turnPoints = 0;
     this.emitState();
@@ -822,9 +828,19 @@ export class GameRoom {
     if (!allStable) return false; // wait for dice to stabilize first
 
     if (!this._bustPendingTs) {
-      // Brand-new bust state — start the grace timer.
       this._bustPendingPlayer = this.order[this.currentIdx];
       this._bustPendingLost = this.turnPoints;
+      // Grace timer only exists so opponents can spend shop items (flick,
+      // saw blade, tornado, etc.) to disturb the dice and potentially salvage
+      // a roll. If nobody owns any items, there's no reason to wait.
+      const anyItems = this.players.some(p => {
+        const inv = this.inventories[p.id];
+        return inv && Object.values(inv).some(count => count > 0);
+      });
+      if (!anyItems) {
+        this._fireBust();
+        return false; // _fireBust emits its own state
+      }
       this._bustPendingTs = Date.now() + BUST_GRACE_MS;
       this.emitEvent({ type: 'bust_pending', playerId: this._bustPendingPlayer, untilTs: this._bustPendingTs });
       return true;
@@ -913,16 +929,27 @@ export class GameRoom {
       // bust evaluation so we don't briefly flash a "Bust in 5s" banner just
       // because the un-banked dice no longer score on their own.
       this._bankingInProgress = true;
-      // Wait for the kept-row lerp animation, then fire the bank event so the
-      // coin bursts start from the kept positions (not the landed ones).
-      const bankAnimMs = bankedIndices.length * 250 + 500 + 800;
-      this._scheduleAt(lerpTotalMs, () => {
-        this.emitEvent({ type: 'bank', playerId: byId, banked, total, indices: bankedIndices, remainingIndices });
-        this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${banked}. Total ${total}.`, kind: 'bank' });
-        this._scheduleAt(bankAnimMs, () => {
-          this._bankingInProgress = false;
-          this.checkWinAndEndTurn(byId);
-        });
+      // New flow: unbanked dice Q-flash out at t=0, banked dice lerp into the
+      // keep row (also at t=0), then once the lerp finishes the coin bursts
+      // fire 0.75 s apart. By the time the bursts run there's nothing else on
+      // the table.
+      const perBurstMs = 750;
+      const burstFadeMs = 1500;
+      const bankAnimMs = lerpTotalMs
+        + Math.max(0, bankedIndices.length - 1) * perBurstMs
+        + burstFadeMs;
+      this.emitEvent({
+        type: 'bank',
+        playerId: byId, banked, total,
+        indices: bankedIndices,
+        remainingIndices,
+        lerpDelayMs: lerpTotalMs,
+        perBurstMs,
+      });
+      this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${banked}. Total ${total}.`, kind: 'bank' });
+      this._scheduleAt(bankAnimMs, () => {
+        this._bankingInProgress = false;
+        this.checkWinAndEndTurn(byId);
       });
     } else if (action === 'reroll') {
       // Bonus check (only after the first roll, only on a hot-dice-bound commit).

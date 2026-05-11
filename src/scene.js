@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createDieMesh } from './dice.js';
 import { woodTexture, feltTexture, iceTexture, bumpFrom } from './textures.js';
+import { scheduleAfter } from './clock.js';
 
 // Casino-themed environment scene used to bake an IBL cubemap.
 // Starts from three.js's built-in RoomEnvironment (a well-tuned procedural
@@ -740,7 +741,7 @@ export class Scene {
     // Remove gone
     for (const [key, mesh] of [...this._dookieMeshes.entries()]) {
       if (!want.has(key)) {
-        if (mesh.userData.stinkInterval) clearInterval(mesh.userData.stinkInterval);
+        mesh.userData.stinkAlive = false;
         this.scene.remove(mesh);
         mesh.geometry.dispose();
         mesh.material.dispose();
@@ -812,9 +813,16 @@ export class Scene {
         };
         requestAnimationFrame(animate);
       };
-      // Initial stink + ongoing periodic emission (rate halved).
-      setTimeout(spawnStink, 0);
-      m.userData.stinkInterval = setInterval(spawnStink, 1100 + Math.random() * 700);
+      // Initial stink + ongoing periodic emission (rate halved). Drives via
+      // the tick-clock so it pauses cleanly when the tab loses rAF, and so we
+      // can stop the stream by flipping a flag.
+      m.userData.stinkAlive = true;
+      const recur = () => {
+        if (!m.userData.stinkAlive) return;
+        spawnStink();
+        scheduleAfter(1100 + Math.random() * 700, recur);
+      };
+      recur();
     }
   }
 

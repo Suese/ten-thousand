@@ -3,6 +3,8 @@
 // sounds/sounds.txt). When an override is present, _playOverride returns true
 // and the method short-circuits before its synthesized fallback runs.
 
+import { scheduleAfter } from './clock.js';
+
 // Map from public method name -> override file basename in /sounds/.
 const OVERRIDES = {
   click:           'click',
@@ -39,7 +41,10 @@ export class SoundFX {
     this._collideCount = 0;
     this._buffers = new Map(); // basename -> AudioBuffer (set once loaded)
     this._loading = null;
-    this._pendingShakeTimers = []; // setTimeout IDs for queued shake bursts
+    // Generation counter for shake-burst cancellation. cancelShake() bumps
+    // this; queued bursts compare against the captured value at scheduling
+    // time and no-op if it's stale.
+    this._shakeGen = 0;
     this._activeShakeSources = new Set(); // override BufferSourceNodes still playing
   }
 
@@ -98,8 +103,7 @@ export class SoundFX {
   // bursts) and any playing override BufferSources. Called the moment a roll
   // begins so the shake doesn't bleed into the dice landing.
   cancelShake() {
-    for (const id of this._pendingShakeTimers) clearTimeout(id);
-    this._pendingShakeTimers.length = 0;
+    this._shakeGen++;
     for (const src of this._activeShakeSources) {
       try { src.stop(); } catch {}
     }
@@ -185,9 +189,12 @@ export class SoundFX {
 
   diceShake() {
     if (this._playOverride('diceShake', this._activeShakeSources, 0.1)) return;
+    const gen = this._shakeGen;
     for (let i = 0; i < 6; i++) {
-      const id = setTimeout(() => this.noiseBurst(0.06, 1200 + Math.random() * 1500, 4, 0.13), i * 55);
-      this._pendingShakeTimers.push(id);
+      scheduleAfter(i * 55, () => {
+        if (gen !== this._shakeGen) return; // cancelled
+        this.noiseBurst(0.06, 1200 + Math.random() * 1500, 4, 0.13);
+      });
     }
   }
 
@@ -219,7 +226,7 @@ export class SoundFX {
     src.connect(filter); filter.connect(g); g.connect(this.master);
     src.start(t); src.stop(t + dur + 0.05);
     // Short clack at the end — feels like the dice leave the hand
-    setTimeout(() => this.tone(180, 0.04, 'square', 0.18), 180);
+    scheduleAfter(180, () => this.tone(180, 0.04, 'square', 0.18));
   }
 
   diceHitMat(intensity = 1) {
@@ -262,10 +269,10 @@ export class SoundFX {
     const ratios = [1, 1.25, 1.5, 1.875, 2.5];
     const count = Math.min(ratios.length, 1 + Math.floor(Math.log10(Math.max(50, score)) - 1));
     for (let i = 0; i < count; i++) {
-      setTimeout(() => {
+      scheduleAfter(i * 75, () => {
         this.tone(root * ratios[i], 0.32, 'triangle', 0.28);
         this.tone(root * ratios[i] * 2, 0.32, 'sine', 0.12);
-      }, i * 75);
+      });
     }
   }
 
@@ -274,59 +281,59 @@ export class SoundFX {
     const root = 523;
     const chord = [0, 4, 7, 12, 16, 19, 24];
     chord.forEach((semi, i) => {
-      setTimeout(() => {
+      scheduleAfter(i * 55, () => {
         const f = root * Math.pow(2, semi / 12);
         this.tone(f, 0.55, 'triangle', 0.25);
         this.tone(f * 0.5, 0.55, 'sine', 0.12);
-      }, i * 55);
+      });
     });
     for (let i = 0; i < 12; i++) {
-      setTimeout(() => this.tone(2000 + Math.random() * 2500, 0.08, 'sine', 0.12), 400 + i * 60);
+      scheduleAfter(400 + i * 60, () => this.tone(2000 + Math.random() * 2500, 0.08, 'sine', 0.12));
     }
   }
 
   bust() {
     if (this._playOverride('bust')) return;
     this.glide(440, 110, 0.9, 'sawtooth', 0.32);
-    setTimeout(() => this.glide(330, 90, 0.6, 'square', 0.18), 200);
+    scheduleAfter(200, () => this.glide(330, 90, 0.6, 'square', 0.18));
   }
 
   bank() {
     if (this._playOverride('bank')) return;
     this.tone(1600, 0.1, 'square', 0.18);
-    setTimeout(() => {
+    scheduleAfter(70, () => {
       this.tone(2400, 0.5, 'sine', 0.28);
       this.tone(3200, 0.5, 'sine', 0.18);
-    }, 70);
+    });
     for (let i = 0; i < 6; i++) {
-      setTimeout(() => this.tone(2500 + Math.random() * 1500, 0.07, 'sine', 0.14), 200 + i * 45);
+      scheduleAfter(200 + i * 45, () => this.tone(2500 + Math.random() * 1500, 0.07, 'sine', 0.14));
     }
   }
 
   hotDice() {
     if (this._playOverride('hotDice')) return;
     this.glide(220, 1760, 0.5, 'sawtooth', 0.18);
-    setTimeout(() => this.scoreBig(), 200);
+    scheduleAfter(200, () => this.scoreBig());
   }
 
   win() {
     if (this._playOverride('win')) return;
     const seq = [523, 659, 784, 1047, 1319];
-    seq.forEach((f, i) => setTimeout(() => this.tone(f, 0.3, 'triangle', 0.32), i * 130));
-    setTimeout(() => {
+    seq.forEach((f, i) => scheduleAfter(i * 130, () => this.tone(f, 0.3, 'triangle', 0.32)));
+    scheduleAfter(700, () => {
       [1047, 1319, 1568, 2093].forEach((f, i) => {
         this.tone(f, 1.4, 'triangle', 0.3 - i * 0.05);
       });
       for (let i = 0; i < 30; i++) {
-        setTimeout(() => this.tone(2500 + Math.random() * 3000, 0.09, 'sine', 0.12), i * 50);
+        scheduleAfter(i * 50, () => this.tone(2500 + Math.random() * 3000, 0.09, 'sine', 0.12));
       }
-    }, 700);
+    });
   }
 
   turnStart() {
     if (this._playOverride('turnStart')) return;
     this.tone(660, 0.08, 'triangle', 0.14);
-    setTimeout(() => this.tone(880, 0.12, 'triangle', 0.18), 70);
+    scheduleAfter(70, () => this.tone(880, 0.12, 'triangle', 0.18));
   }
 
   // Disappointed descending tones — turn skipped because the player ran out of time.
@@ -334,9 +341,9 @@ export class SoundFX {
     if (this._playOverride('turnSkipped')) return;
     if (!this.ctx || this.muted) return;
     this.tone(520, 0.18, 'triangle', 0.28);
-    setTimeout(() => this.tone(390, 0.22, 'triangle', 0.28), 150);
-    setTimeout(() => this.tone(260, 0.35, 'sine', 0.25), 320);
-    setTimeout(() => this.noiseBurst(0.18, 200, 1, 0.16), 380);
+    scheduleAfter(150, () => this.tone(390, 0.22, 'triangle', 0.28));
+    scheduleAfter(320, () => this.tone(260, 0.35, 'sine', 0.25));
+    scheduleAfter(380, () => this.noiseBurst(0.18, 200, 1, 0.16));
   }
 
   // ---- Item-specific sound effects ----
@@ -347,10 +354,10 @@ export class SoundFX {
     if (!this.ctx || this.muted) return;
     this.noiseBurst(0.05, 2500, 2, 0.45);
     this.tone(1800, 0.04, 'square', 0.18);
-    setTimeout(() => {
+    scheduleAfter(18, () => {
       this.tone(700, 0.08, 'sine', 0.22);
       this.tone(340, 0.12, 'sine', 0.18);
-    }, 18);
+    });
   }
 
   // Metallic blade unsheathing (ice rink).
@@ -359,11 +366,11 @@ export class SoundFX {
     if (!this.ctx || this.muted) return;
     this.glide(700, 4200, 0.5, 'sawtooth', 0.22);
     this.glide(1100, 5500, 0.55, 'square', 0.12);
-    setTimeout(() => {
+    scheduleAfter(380, () => {
       this.tone(4500, 0.7, 'sine', 0.18);
       this.tone(3200, 0.5, 'sine', 0.12);
       this.tone(2100, 0.3, 'sine', 0.08);
-    }, 380);
+    });
   }
 
   // Deep heavy thump (weighted die).
@@ -413,8 +420,8 @@ export class SoundFX {
     lfo.start(t); lfo.stop(t + dur + 0.1);
 
     // Wet noise layer.
-    setTimeout(() => this.noiseBurst(0.35, 300, 1, 0.22), 60);
-    setTimeout(() => this.noiseBurst(0.18, 500, 1, 0.18), 280);
+    scheduleAfter(60, () => this.noiseBurst(0.35, 300, 1, 0.22));
+    scheduleAfter(280, () => this.noiseBurst(0.18, 500, 1, 0.18));
   }
 
   // Continuous table saw cutting wood (tornado activation).
@@ -452,9 +459,9 @@ export class SoundFX {
     // Wood crackle bursts.
     const n = Math.floor(duration * 9);
     for (let i = 0; i < n; i++) {
-      setTimeout(() => {
+      scheduleAfter((i / n) * duration * 1000 + Math.random() * 60, () => {
         this.noiseBurst(0.04 + Math.random() * 0.04, 1200 + Math.random() * 1800, 3, 0.06 + Math.random() * 0.08);
-      }, (i / n) * duration * 1000 + Math.random() * 60);
+      });
     }
   }
 
@@ -465,7 +472,7 @@ export class SoundFX {
     this.noiseBurst(0.09, 700, 1.2, 0.55);
     this.tone(180, 0.12, 'square', 0.45);
     this.tone(60, 0.2, 'sine', 0.4);
-    setTimeout(() => this.tone(40, 0.25, 'sine', 0.25), 30);
+    scheduleAfter(30, () => this.tone(40, 0.25, 'sine', 0.25));
   }
 
   // Ominous descending vortex (portable hole).
@@ -474,7 +481,7 @@ export class SoundFX {
     if (!this.ctx || this.muted) return;
     this.glide(1200, 50, 0.8, 'sine', 0.32);
     this.glide(900, 40, 0.85, 'sawtooth', 0.16);
-    setTimeout(() => this.noiseBurst(0.4, 200, 1, 0.20), 200);
-    setTimeout(() => this.tone(30, 0.6, 'sine', 0.25), 700);
+    scheduleAfter(200, () => this.noiseBurst(0.4, 200, 1, 0.20));
+    scheduleAfter(700, () => this.tone(30, 0.6, 'sine', 0.25));
   }
 }

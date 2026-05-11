@@ -1,4 +1,5 @@
 import { Peer } from 'peerjs';
+import { scheduleAfter } from './clock.js';
 
 // Build a PeerJS-friendly room code by appending a small suffix to a base id.
 // Using PeerJS default random server ids — the room code IS the host's peer id.
@@ -119,9 +120,9 @@ export class ClientNet {
         if (!opened) reject(err);
       });
       // Timeout safety
-      setTimeout(() => {
+      scheduleAfter(12000, () => {
         if (!opened) reject(new Error('Connection timed out — check the room code'));
-      }, 12000);
+      });
     });
   }
 

@@ -1,6 +1,7 @@
 import { evaluateKeep } from './rules.js';
 import { ITEMS, isUsable } from './items.js';
 import { colorForPlayer } from './colors.js';
+import { scheduleAfter } from './clock.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -36,6 +37,8 @@ const els = {
   keepBtn: () => $('keep-btn'),
   bankBtn: () => $('bank-btn'),
   log: () => $('log'),
+  logPanel: () => $('log-panel'),
+  logToggle: () => $('log-toggle'),
   endTitle: () => $('end-title'),
   finalScores: () => $('final-scores'),
   playAgainBtn: () => $('play-again-btn'),
@@ -80,7 +83,7 @@ export function bindLobby({ onHost, onJoin }) {
   const room = url.searchParams.get('room');
   if (room) {
     els.joinCode().value = room;
-    setTimeout(() => els.nameInput().focus(), 0);
+    scheduleAfter(0, () => els.nameInput().focus());
   }
 }
 
@@ -128,7 +131,7 @@ function currentRoomLink() {
 function flashButton(btn, msg, ms = 1500) {
   const original = btn.textContent;
   btn.textContent = msg;
-  setTimeout(() => { btn.textContent = original; }, ms);
+  scheduleAfter(ms, () => { btn.textContent = original; });
 }
 
 const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -192,6 +195,22 @@ export function bindWaiting({ onCopy, onStart }) {
   });
 
   els.startBtn().addEventListener('click', onStart);
+}
+
+// Wire up the log minimize / restore toggle. Clicking flips the .minimized
+// class on the panel; CSS handles the slide + fade animation.
+{
+  const toggle = els.logToggle();
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      const panel = els.logPanel();
+      if (!panel) return;
+      panel.classList.toggle('minimized');
+      const minimized = panel.classList.contains('minimized');
+      toggle.title = minimized ? 'Expand log' : 'Minimize log';
+      toggle.setAttribute('aria-label', minimized ? 'Expand log' : 'Minimize log');
+    });
+  }
 }
 
 export function bindGame({ onHold, onRelease, onKeepBank }) {

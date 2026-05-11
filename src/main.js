@@ -6,6 +6,7 @@ import { SoundFX } from './audio.js';
 import { confettiBurst, coinShower, coinBurst, scorePopup, flashScreen, shake, centerOf, bloodSplat, comicBurstFlick, comicBurstHit, qFlash } from './effects.js';
 import { ITEMS } from './items.js';
 import { colorHexForPlayer } from './colors.js';
+import { scheduleAfter, tickClock } from './clock.js';
 
 // ---- Bootstrap scene + audio ----
 const scene = new Scene(document.getElementById('canvas-root'));
@@ -46,6 +47,12 @@ muteBtn.addEventListener('click', () => {
 // Click sound on any button press for tactile feel
 document.addEventListener('click', (e) => {
   if (e.target instanceof HTMLButtonElement) sfx.click();
+});
+
+// Drain the tick-driven scheduler every frame. Anything that needs a delay
+// (bank animation, banner class cleanup, etc.) goes through scheduleAfter().
+scene.onTick(() => {
+  tickClock();
 });
 
 // Live-update the bust countdown text every animation frame.
@@ -217,7 +224,7 @@ function releaseRollHold() {
 // Shake audio driver — synced to state.shaking, so every client hears the
 // shake while the active player is holding. Cancel-on-stop kills any queued
 // noise bursts so the shake doesn't keep ringing after release.
-let _shakeInterval = null;
+let _shakeActive = false;
 // Tracks which dice were "in hand" last frame so we can flash them only on the
 // transition from visible → hidden, not every state update during the shake.
 let _prevInHandSet = new Set();
@@ -225,14 +232,18 @@ let _prevInHandSet = new Set();
 // transforms events for these indices are ignored so they don't fight the
 // client-side animation.
 const _animatingDice = new Set();
+function _shakePulse() {
+  if (!_shakeActive) return;
+  sfx.diceShake();
+  scheduleAfter(320, _shakePulse);
+}
 function syncShakeAudio(state) {
   const want = !!(state && state.shaking);
-  if (want && !_shakeInterval) {
-    sfx.diceShake();
-    _shakeInterval = setInterval(() => sfx.diceShake(), 320);
-  } else if (!want && _shakeInterval) {
-    clearInterval(_shakeInterval);
-    _shakeInterval = null;
+  if (want && !_shakeActive) {
+    _shakeActive = true;
+    _shakePulse();
+  } else if (!want && _shakeActive) {
+    _shakeActive = false;
     sfx.cancelShake();
   }
 }
@@ -556,7 +567,7 @@ function applyEvent(event) {
       for (let i = 0; i < 5; i++) scene.setSelected(i, false);
       // Hard-cut any lingering shake (queued setTimeouts, active sources, and
       // the recurring setInterval) before the toss whoosh fires.
-      if (_shakeInterval) { clearInterval(_shakeInterval); _shakeInterval = null; }
+      _shakeActive = false;
       sfx.cancelShake();
       sfx.tossDice();
       // Lift sticky hides so the new throw can reveal dice, then immediately
@@ -585,8 +596,11 @@ function applyEvent(event) {
       const lerpMs = event.lerpMs || 350;
       for (let k = 0; k < event.targets.length; k++) {
         const t = event.targets[k];
-        setTimeout(() => {
-          _animatingDice.add(t.index);
+        // Mark synchronously so the very next streaming transforms event (which
+        // already carries the snapped kept positions) is masked out before the
+        // deferred lerp gets a chance to start.
+        _animatingDice.add(t.index);
+        scheduleAfter(k * perDieMs, () => {
           scene.animateDieTransform(
             t.index,
             [t.x, t.y, t.z],
@@ -594,7 +608,7 @@ function applyEvent(event) {
             lerpMs,
             () => _animatingDice.delete(t.index),
           );
-        }, k * perDieMs);
+        });
       }
       break;
     }
@@ -636,66 +650,66 @@ function applyEvent(event) {
       break;
     }
     case 'bank': {
-      sfx.bank();
       const where = centerOf(document.getElementById('action-bar'));
       scorePopup(`BANKED +${event.banked}`, where.x, where.y - 40, { bank: true });
 
-      // Capture each die's screen position right now (the next turn's parkAll
-      // will whisk the meshes off-stage within a frame or two).
-      const bankedSeq = (event.indices || [])
-        .map(i => ({ i, pos: scene.getDieScreenPos(i) }))
-        .filter(d => d.pos)
-        .sort((a, b) => a.pos.x - b.pos.x);
-      const remainingSeq = (event.remainingIndices || [])
-        .map(i => ({ i, pos: scene.getDieScreenPos(i) }))
-        .filter(d => d.pos);
-
-      // Banked dice transmute into coins in succession, left → right.
-      for (let k = 0; k < bankedSeq.length; k++) {
-        const { i, pos } = bankedSeq[k];
-        setTimeout(() => {
-          coinBurst(pos.x, pos.y, 18);
-          scene.hideDie(i);
-        }, k * 250);
+      // Unbanked dice Q-flash out instantly — they're not part of the bank,
+      // so they vanish at the moment of click.
+      for (const i of (event.remainingIndices || [])) {
+        const pos = scene.getDieScreenPos(i);
+        if (pos) qFlash(pos.x, pos.y);
+        scene.hideDie(i);
       }
 
-      // 0.5 s after the last bank-burst, the un-banked dice beam out.
-      const beamDelay = bankedSeq.length * 250 + 500;
-      for (const { i, pos } of remainingSeq) {
-        setTimeout(() => {
-          qFlash(pos.x, pos.y);
-          scene.hideDie(i);
-        }, beamDelay);
-      }
+      // Banked dice are still lerping into the keep row — defer the coin
+      // bursts until the lerp completes, then re-read screen positions (now at
+      // the kept-row) and fire them left-to-right, perBurstMs apart.
+      const lerpDelay = event.lerpDelayMs || 0;
+      const perBurst = event.perBurstMs || 750;
+      scheduleAfter(lerpDelay, () => {
+        const bankedSeq = (event.indices || [])
+          .map(i => ({ i, pos: scene.getDieScreenPos(i) }))
+          .filter(d => d.pos)
+          .sort((a, b) => a.pos.x - b.pos.x);
+        for (let k = 0; k < bankedSeq.length; k++) {
+          const { i, pos } = bankedSeq[k];
+          scheduleAfter(k * perBurst, () => {
+            sfx.bank();
+            coinBurst(pos.x, pos.y, 18);
+            scene.hideDie(i);
+          });
+        }
+      });
 
       // Plus the existing center-of-screen shower scaled with banked points.
       const count = Math.min(220, 20 + Math.floor(event.banked / 50));
       const durMs = Math.min(8000, 800 + event.banked * 1.5);
       coinShower(where.x, where.y - 30, count, durMs);
       flashScreen('#7cf3a0', 0.18);
-      // Extra cha-ching pulses spaced across the celebration for large banks
-      const extras = Math.min(5, Math.floor(event.banked / 600));
-      for (let i = 1; i <= extras; i++) {
-        setTimeout(() => sfx.bank(), (durMs / (extras + 1)) * i);
-      }
       break;
     }
     case 'bust': {
       sfx.bust();
       const banner = document.getElementById('turn-banner');
       banner?.classList.add('bust');
-      setTimeout(() => banner?.classList.remove('bust'), 1200);
+      scheduleAfter(1200, () => banner?.classList.remove('bust'));
       shake(document.getElementById('canvas-root'), 8, 500);
       flashScreen('#ff4d68', 0.3);
       const where = centerOf(banner);
       scorePopup(`BUST! −${event.lost}`, where.x, where.y + 60, { bust: true });
+      // Every die on the table Q-flashes out simultaneously.
+      for (const i of (event.indices || [])) {
+        const pos = scene.getDieScreenPos(i);
+        if (pos) qFlash(pos.x, pos.y);
+        scene.hideDie(i);
+      }
       break;
     }
     case 'hot_dice': {
       sfx.hotDice();
       const banner = document.getElementById('turn-banner');
       banner?.classList.add('hot');
-      setTimeout(() => banner?.classList.remove('hot'), 2400);
+      scheduleAfter(2400, () => banner?.classList.remove('hot'));
       flashScreen('#ffd400', 0.3);
       const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
       confettiBurst(cx, cy, 80);
@@ -779,10 +793,10 @@ function applyEvent(event) {
       sfx.win();
       const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
       for (let i = 0; i < 6; i++) {
-        setTimeout(() => {
+        scheduleAfter(i * 350, () => {
           confettiBurst(cx + (Math.random() - 0.5) * 400, cy + (Math.random() - 0.5) * 200, 50);
           coinShower(cx + (Math.random() - 0.5) * 400, cy, 20);
-        }, i * 350);
+        });
       }
       flashScreen('#ffd400', 0.45);
       break;
