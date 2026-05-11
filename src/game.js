@@ -933,7 +933,7 @@ export class GameRoom {
       // keep row (also at t=0), then once the lerp finishes the coin bursts
       // fire 0.75 s apart. By the time the bursts run there's nothing else on
       // the table.
-      const perBurstMs = 750;
+      const perBurstMs = 375;
       const burstFadeMs = 1500;
       const bankAnimMs = lerpTotalMs
         + Math.max(0, bankedIndices.length - 1) * perBurstMs
