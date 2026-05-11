@@ -3,7 +3,7 @@ import { GameRoom } from './game.js';
 import { HostNet, ClientNet } from './net.js';
 import * as ui from './ui.js';
 import { SoundFX } from './audio.js';
-import { confettiBurst, coinShower, scorePopup, flashScreen, shake, centerOf, bloodSplat } from './effects.js';
+import { confettiBurst, coinShower, scorePopup, flashScreen, shake, centerOf, bloodSplat, comicBurstFlick, comicBurstHit } from './effects.js';
 import { ITEMS } from './items.js';
 import { colorHexForPlayer } from './colors.js';
 
@@ -484,31 +484,31 @@ function applyEvent(event) {
     }
     case 'item_used': {
       const idMap = {
-        weighted:      () => { sfx.tone(880, 0.18, 'triangle', 0.22); sfx.tone(440, 0.25, 'sine', 0.2); },
-        portable_hole: () => { sfx.glide(900, 120, 0.45, 'sine', 0.28); sfx.tone(60, 0.35, 'sine', 0.2); },
-        flick:         () => { sfx.tone(1400, 0.05, 'square', 0.18); sfx.diceShake(); },
-        dookie:        () => {
-          // Shotgun blast + cascade of wet splats
-          sfx.noiseBurst(0.07, 900, 0.4, 0.45);
-          sfx.tone(60, 0.18, 'sine', 0.4);
-          for (let i = 0; i < 6; i++) {
-            setTimeout(() => sfx.noiseBurst(0.12 + Math.random() * 0.1, 160 + Math.random() * 220, 1.4, 0.22), 80 + i * 55 + Math.random() * 30);
-          }
-        },
-        ice_rink:      () => { for (let i = 0; i < 8; i++) setTimeout(() => sfx.tone(1500 + i * 200, 0.18, 'sine', 0.18), i * 50); },
-        tornado:       () => {
-          // Rushing wind — overlapping noise bursts + low rumble
-          for (let i = 0; i < 10; i++) {
-            setTimeout(() => sfx.noiseBurst(0.4 + Math.random() * 0.3, 350 + Math.random() * 700, 1.2, 0.22), i * 180);
-          }
-          sfx.glide(70, 110, 3, 'sine', 0.18);
-        },
+        weighted:      () => sfx.thump(),
+        portable_hole: () => sfx.portableHole(),
+        flick:         () => sfx.slap(),
+        dookie:        () => sfx.fart(),
+        ice_rink:      () => sfx.swordUnsheathe(),
+        tornado:       () => sfx.tableSaw(4),
       };
       idMap[event.itemId]?.();
       const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
       const item = ITEMS[event.itemId];
       if (item) scorePopup(`${item.icon} ${item.name}!`, cx, cy - 60, { big: true });
       flashScreen('#ffd400', 0.18);
+      // Cartoony comic burst at the flick hit point
+      if (event.itemId === 'flick' && Array.isArray(event.hitPoint)) {
+        const screen = scene.worldToScreen(event.hitPoint);
+        comicBurstFlick(screen.x, screen.y);
+      }
+      break;
+    }
+    case 'tornado_hit': {
+      sfx.whack();
+      if (Array.isArray(event.point)) {
+        const screen = scene.worldToScreen(event.point);
+        comicBurstHit(screen.x, screen.y);
+      }
       break;
     }
     case 'game_over': {

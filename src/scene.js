@@ -50,6 +50,36 @@ function casinoEnvironmentScene() {
   return env;
 }
 
+// Canvas-drawn stink-line texture used as a billboard sprite above each dookie.
+function makeStinkTexture() {
+  const W = 64, H = 128;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.strokeStyle = '#6dc44d';
+  ctx.lineWidth = 3.5;
+  ctx.lineCap = 'round';
+  // Three vertical wavy lines, each slightly offset
+  for (let i = 0; i < 3; i++) {
+    const x0 = 14 + i * 18;
+    ctx.beginPath();
+    let y = H - 8;
+    let drew = false;
+    while (y > 6) {
+      const wave = Math.sin((H - y) * 0.35 + i * 1.4) * 6;
+      const px = x0 + wave;
+      if (!drew) { ctx.moveTo(px, y); drew = true; }
+      else ctx.lineTo(px, y);
+      y -= 3.5;
+    }
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 // Chamfered (bevel-edged) box geometry. Generalises the chamfered cube used for
 // the dice — 6 face quads + 12 edge bevel quads + 8 corner bevel triangles.
 function createChamferedBoxGeometry(w, h, d, chamfer = 0.06) {
@@ -224,6 +254,15 @@ export class Scene {
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
     });
+    // Stencil mask: where a portable-hole disc has stamped a 1, discard this
+    // material's fragments so the felt physically "has a hole" instead of a
+    // circle drawn on top of it.
+    tableMat.stencilWrite = true;
+    tableMat.stencilFunc = THREE.NotEqualStencilFunc;
+    tableMat.stencilRef = 1;
+    tableMat.stencilFail = THREE.KeepStencilOp;
+    tableMat.stencilZFail = THREE.KeepStencilOp;
+    tableMat.stencilZPass = THREE.KeepStencilOp;
     const table = new THREE.Mesh(tableGeom, tableMat);
     table.rotation.x = -Math.PI / 2;
     table.position.y = -0.002;
@@ -351,10 +390,19 @@ export class Scene {
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
     });
+    // Same hole-mask treatment as the felt so the portable hole cuts through
+    // whichever surface is active.
+    this._iceMat.stencilWrite = true;
+    this._iceMat.stencilFunc = THREE.NotEqualStencilFunc;
+    this._iceMat.stencilRef = 1;
+    this._iceMat.stencilFail = THREE.KeepStencilOp;
+    this._iceMat.stencilZFail = THREE.KeepStencilOp;
+    this._iceMat.stencilZPass = THREE.KeepStencilOp;
     this._logoImage = null;
 
     // Container for dookie blob meshes
     this._dookieMeshes = new Map(); // key -> mesh
+    this._stinkTexture = makeStinkTexture();
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -389,8 +437,6 @@ export class Scene {
   onTick(cb) { this.tickCallbacks.push(cb); }
 
   setDieTransform(i, pos, quat, visible = true) {
-    // Skip if an animation is currently driving this die's transform (e.g. portable hole drop).
-    if (this._animationOverrides && this._animationOverrides.has(i)) return;
     const m = this.dieMeshes[i];
     const offstage = pos[1] < -5;
     m.visible = visible && !offstage;
@@ -416,74 +462,57 @@ export class Scene {
     };
   }
 
-  // Portable Hole — spawns a black disc on the table at `worldPos`, then drops
-  // the targeted die into it (visually). The die mesh is animated locally;
-  // transforms for that index are blocked while the override is active so the
-  // host's eventual park-to-offstage doesn't yank the die during the drop.
+  // Portable Hole — spawns a black disc on the table at `worldPos`. The disc
+  // writes a stencil ref of 1; the felt/ice materials are configured to
+  // discard fragments where stencil == 1, so the table genuinely has a hole.
+  // The disc itself is opaque black with depth-write enabled, so the die — now
+  // physically falling through the felt via cannon ghosting — is occluded as
+  // it descends below table level, creating the "fell through" effect.
   playPortableHoleAnimation(dieIndex, worldPos) {
-    if (!this._animationOverrides) this._animationOverrides = new Set();
-    this._animationOverrides.add(dieIndex);
-
-    const dieMesh = this.dieMeshes[dieIndex];
     const sel = this.selectionRings[dieIndex];
-    const lock = dieMesh.userData.lockRing;
+    const lock = this.dieMeshes[dieIndex].userData.lockRing;
     sel.visible = false;
     lock.visible = false;
 
-    // Black hole disc on the table surface.
-    const discGeom = new THREE.CircleGeometry(0.9, 32);
+    const discGeom = new THREE.CircleGeometry(0.95, 36);
     const discMat = new THREE.MeshBasicMaterial({
       color: 0x000000,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
       side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: true,
+      stencilWrite: true,
+      stencilFunc: THREE.AlwaysStencilFunc,
+      stencilRef: 1,
+      stencilFail: THREE.ReplaceStencilOp,
+      stencilZFail: THREE.ReplaceStencilOp,
+      stencilZPass: THREE.ReplaceStencilOp,
     });
     const disc = new THREE.Mesh(discGeom, discMat);
     disc.rotation.x = -Math.PI / 2;
-    disc.position.set(worldPos[0], 0.03, worldPos[2]);
+    disc.position.set(worldPos[0], 0.004, worldPos[2]);
     disc.scale.setScalar(0.05);
-    disc.renderOrder = 2;
+    // Render before the felt so its stencil write is in place when the felt
+    // tests against it.
+    disc.renderOrder = -1;
     this.scene.add(disc);
 
-    // Pin the die at the disc's xz so the fall looks centered.
-    const startY = dieMesh.position.y;
-    dieMesh.position.set(worldPos[0], startY, worldPos[2]);
-
     const start = performance.now();
-    const duration = 1050;
+    const duration = 1100;
     const animate = (now) => {
       const t = Math.min(1, (now - start) / duration);
-
       // Disc grows quickly, holds, then shrinks at the end.
-      let discScale;
-      if (t < 0.18) discScale = t / 0.18;
-      else if (t > 0.88) discScale = (1 - t) / 0.12;
-      else discScale = 1;
-      disc.scale.setScalar(0.2 + 1.1 * Math.max(0, Math.min(1, discScale)));
-      discMat.opacity = 0.92 * Math.max(0, Math.min(1, discScale * 1.5));
-
-      // Die drops into the hole, rotating and shrinking until invisible.
-      if (t > 0.18) {
-        const phase = Math.min(1, (t - 0.18) / 0.72);
-        const eased = phase * phase * (3 - 2 * phase); // smoothstep
-        dieMesh.position.y = startY - eased * 1.8;
-        dieMesh.rotation.y += 0.18;
-        const s = 1 - eased * 0.95;
-        dieMesh.scale.setScalar(Math.max(0.05, s));
-        if (eased > 0.96) dieMesh.visible = false;
-      }
+      let scale;
+      if (t < 0.18) scale = t / 0.18;
+      else if (t > 0.85) scale = (1 - t) / 0.15;
+      else scale = 1;
+      disc.scale.setScalar(0.1 + 0.95 * Math.max(0, Math.min(1, scale)));
 
       if (t < 1) {
         requestAnimationFrame(animate);
       } else {
-        // Cleanup; release the transform lock so subsequent transforms (host has
-        // parked the die offstage by now) take over and reset scale.
         this.scene.remove(disc);
         discGeom.dispose();
         discMat.dispose();
-        dieMesh.scale.setScalar(1);
-        this._animationOverrides.delete(dieIndex);
       }
     };
     requestAnimationFrame(animate);
@@ -572,6 +601,7 @@ export class Scene {
     // Remove gone
     for (const [key, mesh] of [...this._dookieMeshes.entries()]) {
       if (!want.has(key)) {
+        if (mesh.userData.stinkInterval) clearInterval(mesh.userData.stinkInterval);
         this.scene.remove(mesh);
         mesh.geometry.dispose();
         mesh.material.dispose();
@@ -611,6 +641,41 @@ export class Scene {
         m.add(fly);
         fly.position.sub(m.position);
       }
+
+      // Stink lines — small wavy-green billboards that rise from the blob, fade out,
+      // and respawn periodically while the dookie still exists.
+      const spawnStink = () => {
+        if (!this._dookieMeshes.has(key)) return;
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: this._stinkTexture,
+          transparent: true,
+          depthWrite: false,
+          opacity: 0.85,
+        }));
+        const sx = z.x + (Math.random() - 0.5) * z.r * 0.7;
+        const sz = z.z + (Math.random() - 0.5) * z.r * 0.7;
+        sprite.position.set(sx, 0.3, sz);
+        sprite.scale.set(0.6, 1.1, 1);
+        this.scene.add(sprite);
+        const start = performance.now();
+        const life = 1500 + Math.random() * 500;
+        const animate = (now) => {
+          const t = (now - start) / life;
+          if (t >= 1) {
+            this.scene.remove(sprite);
+            sprite.material.dispose();
+            return;
+          }
+          sprite.position.y = 0.3 + t * 2.2;
+          sprite.material.opacity = 0.85 * (1 - t * t);
+          sprite.scale.set(0.6 - t * 0.15, 1.1 - t * 0.2, 1);
+          requestAnimationFrame(animate);
+        };
+        requestAnimationFrame(animate);
+      };
+      // Initial stink burst + ongoing periodic emission
+      for (let i = 0; i < 2; i++) setTimeout(spawnStink, i * 250);
+      m.userData.stinkInterval = setInterval(spawnStink, 550 + Math.random() * 350);
     }
   }
 

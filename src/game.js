@@ -25,7 +25,16 @@ export class GameRoom {
 
     this.physics = new DicePhysics();
     this.physics.onCollision = (info) => {
-      // Throttled audio collision broadcast.
+      // Tornado-on-die hit — throttled "WHACK!" event for sound + comic burst.
+      const saw = this.activeEffects.sawBlade;
+      if (info.kind === 'dice' && saw && (info.aIndex === saw.dieIndex || info.bIndex === saw.dieIndex)) {
+        const now = performance.now();
+        if (!this._lastTornadoHitTs || now - this._lastTornadoHitTs > 120) {
+          this._lastTornadoHitTs = now;
+          this.emitEvent({ type: 'tornado_hit', point: info.point, intensity: info.intensity });
+        }
+      }
+      // Throttled audio collision broadcast (dice-clatter sound).
       const now = performance.now();
       if (!this._lastCollideEv) this._lastCollideEv = 0;
       if (now - this._lastCollideEv < 25) return;
@@ -174,18 +183,18 @@ export class GameRoom {
         if (!this.activeEffects.portableHole[targetPlayerId]) this.activeEffects.portableHole[targetPlayerId] = [];
         this.activeEffects.portableHole[targetPlayerId].push(idx);
         if (this.phase === 'awaiting_keep' || this.phase === 'rolling') {
-          // Capture the die's current 3D position so clients can spawn the
-          // black-hole disc + falling-die animation at the right spot. Selection
-          // clears immediately; the physics body parks AFTER the animation so
-          // the client doesn't see the die teleport mid-animation.
+          // Capture the die's current xz so clients can place the hole disc.
+          // The physics body is ghosted (collisionResponse off + downward velocity)
+          // so it physically falls through the felt under gravity. Host streams
+          // transforms during the fall; after ~1.1 s we park the body offstage.
           const b = this.physics.bodies[idx];
           const pos = [b.position.x, b.position.y, b.position.z];
           this.activeEffects.hiddenNow.add(idx);
           this.selection = this.selection.filter(i => i !== idx);
+          this.physics.enterPortableHole(idx);
           this.emitEvent({ type: 'portable_hole_animate', dieIndex: idx, position: pos });
           setTimeout(() => {
-            this.physics.parkIndices([idx]);
-            this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
+            this.physics.parkIndices([idx]); // also re-enables collision response
           }, 1100);
         }
         extra = { targetPlayerId, dieIndex: idx };

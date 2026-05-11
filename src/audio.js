@@ -202,4 +202,136 @@ export class SoundFX {
     this.tone(660, 0.08, 'triangle', 0.14);
     setTimeout(() => this.tone(880, 0.12, 'triangle', 0.18), 70);
   }
+
+  // ---- Item-specific sound effects ----
+
+  // Sharp wet slap (flick).
+  slap() {
+    if (!this.ctx || this.muted) return;
+    this.noiseBurst(0.05, 2500, 2, 0.45);
+    this.tone(1800, 0.04, 'square', 0.18);
+    setTimeout(() => {
+      this.tone(700, 0.08, 'sine', 0.22);
+      this.tone(340, 0.12, 'sine', 0.18);
+    }, 18);
+  }
+
+  // Metallic blade unsheathing (ice rink).
+  swordUnsheathe() {
+    if (!this.ctx || this.muted) return;
+    this.glide(700, 4200, 0.5, 'sawtooth', 0.22);
+    this.glide(1100, 5500, 0.55, 'square', 0.12);
+    setTimeout(() => {
+      this.tone(4500, 0.7, 'sine', 0.18);
+      this.tone(3200, 0.5, 'sine', 0.12);
+      this.tone(2100, 0.3, 'sine', 0.08);
+    }, 380);
+  }
+
+  // Deep heavy thump (weighted die).
+  thump() {
+    if (!this.ctx || this.muted) return;
+    this.tone(80, 0.22, 'sine', 0.55);
+    this.tone(45, 0.4, 'sine', 0.35);
+    this.noiseBurst(0.06, 130, 1, 0.28);
+  }
+
+  // Obnoxious flatulent buzz (dookie throw).
+  fart() {
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const dur = 0.7;
+
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(170, t);
+    osc.frequency.linearRampToValueAtTime(85, t + dur);
+
+    // Wobble — adds the "rumbling" quality.
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 22;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 28;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 1200;
+    filter.Q.value = 6;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(0.5, t + 0.03);
+    gain.gain.setValueAtTime(0.5, t + dur - 0.15);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.05);
+
+    osc.connect(filter); filter.connect(gain); gain.connect(this.master);
+    osc.start(t); osc.stop(t + dur + 0.1);
+    lfo.start(t); lfo.stop(t + dur + 0.1);
+
+    // Wet noise layer.
+    setTimeout(() => this.noiseBurst(0.35, 300, 1, 0.22), 60);
+    setTimeout(() => this.noiseBurst(0.18, 500, 1, 0.18), 280);
+  }
+
+  // Continuous table saw cutting wood (tornado activation).
+  tableSaw(duration = 3) {
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+    const fadeOut = 0.25;
+    const harmonics = [220, 440, 660, 880];
+    for (const f of harmonics) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(0.10, t0 + 0.1);
+      g.gain.setValueAtTime(0.10, t0 + duration - fadeOut);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+      osc.connect(g); g.connect(this.master);
+      osc.start(t0); osc.stop(t0 + duration + 0.1);
+    }
+    // High whine — the spinning blade.
+    const whine = ctx.createOscillator();
+    whine.type = 'sawtooth';
+    whine.frequency.value = 2800;
+    const wg = ctx.createGain();
+    wg.gain.setValueAtTime(0.0001, t0);
+    wg.gain.linearRampToValueAtTime(0.07, t0 + 0.1);
+    wg.gain.setValueAtTime(0.07, t0 + duration - fadeOut);
+    wg.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    whine.connect(wg); wg.connect(this.master);
+    whine.start(t0); whine.stop(t0 + duration + 0.1);
+
+    // Wood crackle bursts.
+    const n = Math.floor(duration * 9);
+    for (let i = 0; i < n; i++) {
+      setTimeout(() => {
+        this.noiseBurst(0.04 + Math.random() * 0.04, 1200 + Math.random() * 1800, 3, 0.06 + Math.random() * 0.08);
+      }, (i / n) * duration * 1000 + Math.random() * 60);
+    }
+  }
+
+  // Massive impact (tornado hits a die).
+  whack() {
+    if (!this.ctx || this.muted) return;
+    this.noiseBurst(0.09, 700, 1.2, 0.55);
+    this.tone(180, 0.12, 'square', 0.45);
+    this.tone(60, 0.2, 'sine', 0.4);
+    setTimeout(() => this.tone(40, 0.25, 'sine', 0.25), 30);
+  }
+
+  // Ominous descending vortex (portable hole).
+  portableHole() {
+    if (!this.ctx || this.muted) return;
+    this.glide(1200, 50, 0.8, 'sine', 0.32);
+    this.glide(900, 40, 0.85, 'sawtooth', 0.16);
+    setTimeout(() => this.noiseBurst(0.4, 200, 1, 0.20), 200);
+    setTimeout(() => this.tone(30, 0.6, 'sine', 0.25), 700);
+  }
 }

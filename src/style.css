@@ -531,6 +531,39 @@ button.primary:hover:not(:disabled) {
   will-change: transform, opacity;
 }
 
+/* Comic-book starburst (POW!, KABLAM!, etc.) */
+.comic-burst {
+  position: fixed;
+  pointer-events: none;
+  z-index: 260;
+  font-family: "Impact", "Arial Black", "Helvetica Neue", sans-serif;
+  font-weight: 900;
+  font-size: 54px;
+  letter-spacing: 0.04em;
+  color: var(--burst-fg, #fff);
+  background: var(--burst-bg, #ff4757);
+  padding: 30px 46px;
+  text-shadow:
+    -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 3px 3px 0 #000,
+     0 -3px 0 #000,  0  3px 0 #000, -3px 0 0 #000,  3px 0 0 #000,
+     0 0 14px rgba(0,0,0,0.55);
+  /* 10-point star clip path for the cartoony jagged shape */
+  clip-path: polygon(
+    50% 0%, 61% 26%, 100% 27%, 70% 49%, 84% 88%,
+    50% 68%, 16% 88%, 30% 49%, 0% 27%, 39% 26%
+  );
+  animation: comic-burst-pop 0.85s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transform: translate(-50%, -50%) scale(0.2) rotate(var(--burst-rot, 0deg));
+  will-change: transform, opacity;
+}
+@keyframes comic-burst-pop {
+  0%   { transform: translate(-50%, -50%) scale(0.2) rotate(calc(var(--burst-rot, 0deg) - 35deg)); opacity: 0; }
+  22%  { transform: translate(-50%, -50%) scale(1.45) rotate(var(--burst-rot, 0deg)); opacity: 1; }
+  40%  { transform: translate(-50%, -50%) scale(1) rotate(var(--burst-rot, 0deg)); }
+  75%  { transform: translate(-50%, -50%) scale(1) rotate(var(--burst-rot, 0deg)); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.4) rotate(var(--burst-rot, 0deg)); opacity: 0; }
+}
+
 .coin {
   position: fixed;
   pointer-events: none;

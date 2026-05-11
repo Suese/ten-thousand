@@ -82,15 +82,13 @@ export class DicePhysics {
         if (otherIsDie && selfIdx === this.sawBladeIndex) {
           const victim = event.body;
           victim.wakeUp();
-          const kx = (Math.random() - 0.5) * 14;
-          const ky = 4 + Math.random() * 4;
-          const kz = (Math.random() - 0.5) * 14;
-          victim.velocity.x += kx;
-          victim.velocity.y = Math.max(victim.velocity.y, ky);
-          victim.velocity.z += kz;
-          victim.angularVelocity.x += (Math.random() - 0.5) * 30;
-          victim.angularVelocity.y += (Math.random() - 0.5) * 30;
-          victim.angularVelocity.z += (Math.random() - 0.5) * 30;
+          // Launch the victim hard — let it fly. No vertical cap.
+          victim.velocity.x += (Math.random() - 0.5) * 14;
+          victim.velocity.z += (Math.random() - 0.5) * 14;
+          victim.velocity.y += 4 + Math.random() * 5;
+          victim.angularVelocity.x += (Math.random() - 0.5) * 35;
+          victim.angularVelocity.y += (Math.random() - 0.5) * 35;
+          victim.angularVelocity.z += (Math.random() - 0.5) * 35;
         }
 
         if (!this.onCollision) return;
@@ -127,12 +125,24 @@ export class DicePhysics {
   parkIndices(indices) {
     for (const i of indices) {
       const b = this.bodies[i];
+      b.collisionResponse = true; // ensure restored (in case the body was ghosted)
       b.velocity.set(0, 0, 0);
       b.angularVelocity.set(0, 0, 0);
       b.position.set(20 + i * 2, -20, 0);
       b.sleep();
       this._faceTracker.delete(i);
     }
+  }
+
+  // Portable Hole — turns off collision response on the die so gravity pulls
+  // it straight through the felt. A small downward seed velocity makes the
+  // fall start immediately and consistently.
+  enterPortableHole(dieIndex) {
+    const b = this.bodies[dieIndex];
+    b.collisionResponse = false;
+    b.wakeUp();
+    b.velocity.set(0, -4, 0);
+    b.angularVelocity.set(0, 0, 0);
   }
 
   // Restore parked dice to a default rest pose so they're visible again next roll.
@@ -242,37 +252,29 @@ export class DicePhysics {
     this._sawBladeTimer = 0;
     const b = this.bodies[dieIndex];
     b.wakeUp();
-    // Big initial velocity + chaotic spin on every axis (was modest).
-    b.velocity.set((Math.random() - 0.5) * 12, 3 + Math.random() * 3, (Math.random() - 0.5) * 12);
-    b.angularVelocity.set(
-      (Math.random() - 0.5) * 50,
-      40 + (Math.random() - 0.5) * 30,
-      (Math.random() - 0.5) * 50,
-    );
+    // 2x the original lateral speed, almost no lift — stays on the table.
+    b.velocity.set((Math.random() - 0.5) * 12, 0.6, (Math.random() - 0.5) * 12);
+    b.angularVelocity.set(0, 76, 0);
     if (!this.activeIndices.includes(dieIndex)) this.activeIndices.push(dieIndex);
   }
 
   tickSawBlade(dieIndex, dt) {
     const b = this.bodies[dieIndex];
     b.wakeUp();
-    // Pin a HUGE spin around y, plus chaotic x/z so the die looks completely
-    // out of control instead of orderly-pinwheel.
-    b.angularVelocity.y = 65 + (Math.random() - 0.5) * 30;
-    b.angularVelocity.x += (Math.random() - 0.5) * 8;
-    b.angularVelocity.z += (Math.random() - 0.5) * 8;
-    // Cap the chaotic axes so they don't blow up to NaN.
-    b.angularVelocity.x = Math.max(-40, Math.min(40, b.angularVelocity.x));
-    b.angularVelocity.z = Math.max(-40, Math.min(40, b.angularVelocity.z));
-
-    // Random linear impulses — bigger and more frequent than before.
+    // Single-axis spin (vertical only). Damp out any horizontal angular
+    // velocity it picks up from collisions so it doesn't tumble or get lift.
+    b.angularVelocity.y = 76;
+    b.angularVelocity.x *= 0.6;
+    b.angularVelocity.z *= 0.6;
+    // 2x the original cadence/strength of lateral impulses, no vertical kick.
     this._sawBladeTimer += dt;
-    if (this._sawBladeTimer > 0.08) {
+    if (this._sawBladeTimer > 0.09) {
       this._sawBladeTimer = 0;
-      b.velocity.x += (Math.random() - 0.5) * 18;
-      b.velocity.z += (Math.random() - 0.5) * 18;
-      if (b.velocity.y < 1) b.velocity.y += 2.8;
+      b.velocity.x += (Math.random() - 0.5) * 14;
+      b.velocity.z += (Math.random() - 0.5) * 14;
+      // Damp any upward velocity gained from bouncing — keep it grounded.
+      if (b.velocity.y > 1.5) b.velocity.y = 1.5;
     }
-    if (b.position.y < 0.4) b.velocity.y += 8 * dt;
   }
 
   endSawBlade(dieIndex) {

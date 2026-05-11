@@ -105,6 +105,40 @@ export function centerOf(el) {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
 
+// Cartoony comic-book burst — colorful jagged starburst with bold outlined text.
+// Used for flicks ("POW!") and tornado hits ("KABLAM!").
+const COMIC_PALETTES = [
+  { bg: '#ff4757', fg: '#fff7c2' },
+  { bg: '#ffd400', fg: '#a30010' },
+  { bg: '#5a9bff', fg: '#ffffff' },
+  { bg: '#7cf3a0', fg: '#062a13' },
+  { bg: '#ff5cd6', fg: '#fff7c2' },
+  { bg: '#ff8c2b', fg: '#1a0a00' },
+];
+const FLICK_WORDS = ['SLAP!', 'POW!', 'BIFF!', 'ZAP!', 'BAM!', 'THWAP!'];
+const HIT_WORDS = ['KABLAM!', 'WHAM!', 'BOOM!', 'SOCK!', 'KAPOW!', 'WHACK!', 'CRASH!'];
+
+export function comicBurst(x, y, text = 'POW!') {
+  const palette = COMIC_PALETTES[(Math.random() * COMIC_PALETTES.length) | 0];
+  const rot = (Math.random() - 0.5) * 30;
+  const el = document.createElement('div');
+  el.className = 'comic-burst';
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  el.style.setProperty('--burst-bg', palette.bg);
+  el.style.setProperty('--burst-fg', palette.fg);
+  el.style.setProperty('--burst-rot', rot + 'deg');
+  el.innerHTML = `<span>${text}</span>`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 900);
+}
+export function comicBurstFlick(x, y) {
+  comicBurst(x, y, FLICK_WORDS[(Math.random() * FLICK_WORDS.length) | 0]);
+}
+export function comicBurstHit(x, y) {
+  comicBurst(x, y, HIT_WORDS[(Math.random() * HIT_WORDS.length) | 0]);
+}
+
 // Blood-splat burst — red/dark-red particles spraying outward from a point.
 export function bloodSplat(x, y, count = 28) {
   const colors = ['#a30000', '#d80020', '#7a0010', '#ff3050', '#5a000a'];
