@@ -97,25 +97,43 @@ export class GameRoom {
   }
 
   shakeStart(fromId) {
-    // Allow shake during awaiting_roll (start of turn) AND awaiting_keep
-    // (subsequent rolls / hot dice) so every roll uses hold-to-throw.
     if (this.phase !== 'awaiting_roll' && this.phase !== 'awaiting_keep') return;
     if (this.order[this.currentIdx] !== fromId) return;
     if (this._shaking) return;
     this._shaking = true;
-    // Compute which dice are about to be rerolled and tag them "in hand" —
-    // clients will hide those meshes for the duration of the hold + pre-throw
-    // pause, then they reappear as they're physically thrown.
+    this._shakeStartTs = Date.now();
     this._inHand = [];
     for (let i = 0; i < this.diceState.length; i++) {
       if (this.diceState[i].locked) continue;
       if (this.activeEffects.destroyed.has(i)) continue;
       if (this.activeEffects.hiddenNow.has(i)) continue;
-      // Selected dice are about to LOCK on commit, not be rerolled.
       if (this.phase === 'awaiting_keep' && this.selection.includes(i)) continue;
       this._inHand.push(i);
     }
     this.emitState();
+  }
+
+  // Schedules the actual physics throw to fire at least 2 s after the shake
+  // started. If the player held the button longer than 2 s, throws right away.
+  _scheduleThrow() {
+    if (this._rollPending) return;
+    this._rollPending = true;
+    const SHAKE_MIN_MS = 2000;
+    const elapsed = Date.now() - (this._shakeStartTs || Date.now());
+    const remaining = Math.max(0, SHAKE_MIN_MS - elapsed);
+    const doThrow = () => {
+      this._rollPending = false;
+      // If we drifted out of a rollable phase in the meantime (turn timeout,
+      // disconnect, etc.) abandon the throw.
+      if (this.phase !== 'rolling') {
+        this._shaking = false;
+        return;
+      }
+      this._shaking = false;
+      this.beginRoll();
+    };
+    if (remaining === 0) doThrow();
+    else setTimeout(doThrow, remaining);
   }
 
   // Active player updates which dice they're highlighting; broadcast to all so spectators see it.
@@ -378,6 +396,7 @@ export class GameRoom {
       this.phase = 'awaiting_roll';
       this._turnTimeoutTs = Date.now() + TURN_TIMEOUT_MS;
       this._shaking = false;
+      this._rollPending = false;
       this.emitEvent({ type: 'log', text: `${this.nameOf(this.order[this.currentIdx])}'s turn.` });
     }
     this.emitState();
@@ -452,6 +471,8 @@ export class GameRoom {
     this.phase = 'awaiting_roll';
     this._turnTimeoutTs = Date.now() + TURN_TIMEOUT_MS;
     this._turnRollCount = 0;
+    this._rollPending = false;
+    this._shaking = false;
     this.physics.parkAll();
     // Clear turn-scoped item effects.
     this.activeEffects.destroyed.clear();
@@ -472,9 +493,13 @@ export class GameRoom {
   requestRoll(byId) {
     if (this.phase !== 'awaiting_roll') return;
     if (this.order[this.currentIdx] !== byId) return;
+    if (this._rollPending) return;
     this._turnTimeoutTs = null;
-    this._shaking = false;
-    this.beginRoll();
+    // Move to 'rolling' immediately so the button hides; shake audio keeps
+    // going via state.shaking until _scheduleThrow fires beginRoll.
+    this.phase = 'rolling';
+    this.emitState();
+    this._scheduleThrow();
   }
 
   beginRoll() {
@@ -511,8 +536,11 @@ export class GameRoom {
     this.phase = 'rolling';
     this.physics.throwDice(active, lockedTransforms);
     this.streaming = true;
-    this.emitEvent({ type: 'roll_started', activeIndices: active, hidden: holes });
+    // Ship state first so clients clear the shake audio before the
+    // roll_started event triggers tossDice — ensures the throw sound never
+    // overlaps the lingering rattle.
     this.emitState();
+    this.emitEvent({ type: 'roll_started', activeIndices: active, hidden: holes });
   }
 
   // --- Physics tick: called by host's render loop ---
@@ -828,8 +856,11 @@ export class GameRoom {
           this.emitEvent({ type: 'log', text: `${label} +${bonus} bonus!`, kind: 'bank' });
         }
       }
-      this._shaking = false;
-      this.beginRoll();
+      // Move to 'rolling' immediately so the keep/bank UI hides; shake audio
+      // keeps going (state.shaking still true) until the 2 s minimum elapses.
+      this.phase = 'rolling';
+      this.emitState();
+      this._scheduleThrow();
     }
   }
 

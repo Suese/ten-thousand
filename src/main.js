@@ -537,8 +537,9 @@ function applyEvent(event) {
     case 'roll_started':
       selection.clear();
       for (let i = 0; i < 5; i++) scene.setSelected(i, false);
-      // Hard-cut any lingering shake (queued setTimeouts + override sources)
-      // and play the toss whoosh right as the dice leave the cup.
+      // Hard-cut any lingering shake (queued setTimeouts, active sources, and
+      // the recurring setInterval) before the toss whoosh fires.
+      if (_shakeInterval) { clearInterval(_shakeInterval); _shakeInterval = null; }
       sfx.cancelShake();
       sfx.tossDice();
       ui.log('Dice rolling...');
