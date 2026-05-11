@@ -136,7 +136,7 @@ const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 async function tryWebShare(link) {
   if (!navigator.share) return false;
   try {
-    await navigator.share({ url: link, title: '10,000 Dice', text: 'Join my dice game!' });
+    await navigator.share({ url: link, title: 'Ten Thousand Dice', text: 'Join my dice game!' });
     return true;
   } catch (err) {
     // AbortError = user cancelled the share; treat as success-ish (don't fall back to copy)
