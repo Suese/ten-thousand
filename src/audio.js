@@ -1,6 +1,32 @@
-// Web Audio synthesized SFX — no asset files needed.
-// All sounds are generated on the fly with oscillators + filtered noise.
-// Audio context is lazy-initialized on first user gesture (browser autoplay rule).
+// Web Audio synthesized SFX — no asset files required by default. Each method
+// can be overridden by dropping a custom audio file into /sounds/ (see
+// sounds/sounds.txt). When an override is present, _playOverride returns true
+// and the method short-circuits before its synthesized fallback runs.
+
+// Map from public method name -> override file basename in /sounds/.
+const OVERRIDES = {
+  click:           'click',
+  pluck:           'pluck',
+  diceShake:       'dice_shake',
+  diceHitMat:      'dice_mat',
+  diceHitDice:     'dice_dice',
+  selectDie:       'select',
+  deselectDie:     'deselect',
+  scoreSmall:      'score',
+  scoreBig:        'score_big',
+  bust:            'bust',
+  bank:            'bank',
+  hotDice:         'hot_dice',
+  win:             'win',
+  turnStart:       'turn_start',
+  slap:            'flick',
+  swordUnsheathe:  'ice_rink',
+  thump:           'weighted',
+  fart:            'dookie',
+  tableSaw:        'tornado',
+  whack:           'tornado_hit',
+  portableHole:    'portable_hole',
+};
 
 export class SoundFX {
   constructor() {
@@ -9,6 +35,8 @@ export class SoundFX {
     this.muted = false;
     this._lastCollide = 0;
     this._collideCount = 0;
+    this._buffers = new Map(); // basename -> AudioBuffer (set once loaded)
+    this._loading = null;
   }
 
   ensure() {
@@ -19,6 +47,40 @@ export class SoundFX {
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.55;
     this.master.connect(this.ctx.destination);
+    this._loadOverrides();
+  }
+
+  // Best-effort fetch + decode of every override basename. Missing files (404)
+  // are silently ignored so the synthesized fallback can still run.
+  async _loadOverrides() {
+    if (this._loading) return this._loading;
+    const basenames = [...new Set(Object.values(OVERRIDES))];
+    const tryLoad = async (base) => {
+      for (const ext of ['mp3', 'wav', 'ogg']) {
+        try {
+          const res = await fetch(`./sounds/${base}.${ext}`);
+          if (!res.ok) continue;
+          const arr = await res.arrayBuffer();
+          const buf = await this.ctx.decodeAudioData(arr);
+          this._buffers.set(base, buf);
+          return;
+        } catch (e) { /* try next extension */ }
+      }
+    };
+    this._loading = Promise.allSettled(basenames.map(tryLoad));
+    return this._loading;
+  }
+
+  _playOverride(methodName) {
+    const base = OVERRIDES[methodName];
+    if (!base) return false;
+    const buf = this._buffers.get(base);
+    if (!buf || this.muted || !this.ctx) return false;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(this.master);
+    src.start();
+    return true;
   }
 
   resume() {
@@ -89,25 +151,32 @@ export class SoundFX {
 
   // ---- Game sounds ----
 
-  click() { this.tone(1100, 0.04, 'square', 0.08); }
-  pluck() { this.tone(880, 0.08, 'triangle', 0.18); }
+  click() {
+    if (this._playOverride('click')) return;
+    this.tone(1100, 0.04, 'square', 0.08);
+  }
+  pluck() {
+    if (this._playOverride('pluck')) return;
+    this.tone(880, 0.08, 'triangle', 0.18);
+  }
 
   diceShake() {
-    // Cup-shake: rapid filtered noise pulses with rising tone
+    if (this._playOverride('diceShake')) return;
     for (let i = 0; i < 6; i++) {
       setTimeout(() => this.noiseBurst(0.06, 1200 + Math.random() * 1500, 4, 0.13), i * 55);
     }
   }
 
   diceHitMat(intensity = 1) {
+    if (this._playOverride('diceHitMat')) return;
     const v = Math.max(0.05, Math.min(1, intensity));
     this.noiseBurst(0.08, 140, 2.5, 0.22 * v);
     this.tone(80 + Math.random() * 30, 0.04, 'sine', 0.18 * v);
   }
 
   diceHitDice(intensity = 1) {
+    if (this._playOverride('diceHitDice')) return;
     const v = Math.max(0.05, Math.min(1, intensity));
-    // Sharp click — high band noise + tonal "tick"
     this.noiseBurst(0.04, 2200 + Math.random() * 1500, 6, 0.16 * v);
     this.tone(1500 + Math.random() * 500, 0.02, 'square', 0.06 * v);
   }
@@ -122,18 +191,20 @@ export class SoundFX {
   }
 
   selectDie() {
+    if (this._playOverride('selectDie')) return;
     this.tone(660, 0.06, 'triangle', 0.18);
     this.tone(990, 0.04, 'triangle', 0.12);
   }
 
   deselectDie() {
+    if (this._playOverride('deselectDie')) return;
     this.tone(440, 0.05, 'triangle', 0.12);
   }
 
   scoreSmall(score) {
-    // Ascending bell arpeggio scaled to score size
-    const root = 523; // C5
-    const ratios = [1, 1.25, 1.5, 1.875, 2.5]; // major-pentatonic-ish
+    if (this._playOverride('scoreSmall')) return;
+    const root = 523;
+    const ratios = [1, 1.25, 1.5, 1.875, 2.5];
     const count = Math.min(ratios.length, 1 + Math.floor(Math.log10(Math.max(50, score)) - 1));
     for (let i = 0; i < count; i++) {
       setTimeout(() => {
@@ -144,7 +215,7 @@ export class SoundFX {
   }
 
   scoreBig() {
-    // Triumphant chord stack with sparkles
+    if (this._playOverride('scoreBig')) return;
     const root = 523;
     const chord = [0, 4, 7, 12, 16, 19, 24];
     chord.forEach((semi, i) => {
@@ -160,13 +231,13 @@ export class SoundFX {
   }
 
   bust() {
-    // Sad descending wah
+    if (this._playOverride('bust')) return;
     this.glide(440, 110, 0.9, 'sawtooth', 0.32);
     setTimeout(() => this.glide(330, 90, 0.6, 'square', 0.18), 200);
   }
 
   bank() {
-    // Cha-ching — coin + ding + jingle
+    if (this._playOverride('bank')) return;
     this.tone(1600, 0.1, 'square', 0.18);
     setTimeout(() => {
       this.tone(2400, 0.5, 'sine', 0.28);
@@ -178,20 +249,19 @@ export class SoundFX {
   }
 
   hotDice() {
-    // Wild sweep + crowd-cheer-ish noise
+    if (this._playOverride('hotDice')) return;
     this.glide(220, 1760, 0.5, 'sawtooth', 0.18);
     setTimeout(() => this.scoreBig(), 200);
   }
 
   win() {
-    // Fanfare: triadic ascending then sustained super-major chord
+    if (this._playOverride('win')) return;
     const seq = [523, 659, 784, 1047, 1319];
     seq.forEach((f, i) => setTimeout(() => this.tone(f, 0.3, 'triangle', 0.32), i * 130));
     setTimeout(() => {
       [1047, 1319, 1568, 2093].forEach((f, i) => {
         this.tone(f, 1.4, 'triangle', 0.3 - i * 0.05);
       });
-      // Sparkle shower
       for (let i = 0; i < 30; i++) {
         setTimeout(() => this.tone(2500 + Math.random() * 3000, 0.09, 'sine', 0.12), i * 50);
       }
@@ -199,6 +269,7 @@ export class SoundFX {
   }
 
   turnStart() {
+    if (this._playOverride('turnStart')) return;
     this.tone(660, 0.08, 'triangle', 0.14);
     setTimeout(() => this.tone(880, 0.12, 'triangle', 0.18), 70);
   }
@@ -207,6 +278,7 @@ export class SoundFX {
 
   // Sharp wet slap (flick).
   slap() {
+    if (this._playOverride('slap')) return;
     if (!this.ctx || this.muted) return;
     this.noiseBurst(0.05, 2500, 2, 0.45);
     this.tone(1800, 0.04, 'square', 0.18);
@@ -218,6 +290,7 @@ export class SoundFX {
 
   // Metallic blade unsheathing (ice rink).
   swordUnsheathe() {
+    if (this._playOverride('swordUnsheathe')) return;
     if (!this.ctx || this.muted) return;
     this.glide(700, 4200, 0.5, 'sawtooth', 0.22);
     this.glide(1100, 5500, 0.55, 'square', 0.12);
@@ -230,6 +303,7 @@ export class SoundFX {
 
   // Deep heavy thump (weighted die).
   thump() {
+    if (this._playOverride('thump')) return;
     if (!this.ctx || this.muted) return;
     this.tone(80, 0.22, 'sine', 0.55);
     this.tone(45, 0.4, 'sine', 0.35);
@@ -238,6 +312,7 @@ export class SoundFX {
 
   // Obnoxious flatulent buzz (dookie throw).
   fart() {
+    if (this._playOverride('fart')) return;
     if (!this.ctx || this.muted) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
@@ -279,6 +354,7 @@ export class SoundFX {
 
   // Continuous table saw cutting wood (tornado activation).
   tableSaw(duration = 3) {
+    if (this._playOverride('tableSaw')) return;
     if (!this.ctx || this.muted) return;
     const ctx = this.ctx;
     const t0 = ctx.currentTime;
@@ -319,6 +395,7 @@ export class SoundFX {
 
   // Massive impact (tornado hits a die).
   whack() {
+    if (this._playOverride('whack')) return;
     if (!this.ctx || this.muted) return;
     this.noiseBurst(0.09, 700, 1.2, 0.55);
     this.tone(180, 0.12, 'square', 0.45);
@@ -328,6 +405,7 @@ export class SoundFX {
 
   // Ominous descending vortex (portable hole).
   portableHole() {
+    if (this._playOverride('portableHole')) return;
     if (!this.ctx || this.muted) return;
     this.glide(1200, 50, 0.8, 'sine', 0.32);
     this.glide(900, 40, 0.85, 'sawtooth', 0.16);

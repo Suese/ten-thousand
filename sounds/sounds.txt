@@ -1,0 +1,56 @@
+Custom Sound Overrides
+======================
+
+Drop audio files into this folder using the filenames below to override the
+built-in synthesized SFX. If a file is absent, the procedural version still
+plays — you only need to add the ones you want to replace.
+
+Supported extensions: .mp3, .wav, .ogg
+Lookup order per slot: .mp3 first, then .wav, then .ogg. The first that
+exists wins.
+
+The whole thing is gated by the in-game mute button (top-right 🔊 / 🔇)
+and respects the master volume just like the synthesized sounds.
+
+─────────────────────────────────────────────────────────────────────────────
+Game sounds
+─────────────────────────────────────────────────────────────────────────────
+
+  click          Tactile feedback on every button click.
+  pluck          Generic short pluck (small confirmations).
+  dice_shake     Rattle of the dice "cup" right as a roll starts.
+  dice_mat       A die thumping the felt.
+  dice_dice      A die clacking into another die.
+  select         Selecting a die during awaiting_keep.
+  deselect       Deselecting a die.
+  score          Small score confirmation (any commit under 500 pts).
+  score_big      Big score fanfare (500+ pts, three 1s, etc.).
+  bust           Sad trombone — turn busted.
+  bank           Cha-ching coin jingle for banking points.
+  hot_dice       Triumphant chord — all 5 dice scored, rerolling all 5.
+  win            End-of-game winner fanfare.
+  turn_start     "Your turn" cue at the top of a turn.
+
+─────────────────────────────────────────────────────────────────────────────
+Shop item sounds
+─────────────────────────────────────────────────────────────────────────────
+
+  flick          Slap — Flick item activation.
+  ice_rink       Sword unsheathing — Ice Rink item activation.
+  weighted       Heavy thump — Weighted Die item activation.
+  dookie         Obnoxious fart — Dookie Throw item activation.
+  tornado        Table-saw-cutting-wood — Tornado item activation.
+                 (Loops? No — plays once. Keep it ~3-4 s for the full tornado.)
+  tornado_hit    Big "WHACK!" when the tornado die collides with another die.
+  portable_hole  Ominous descending vortex — Portable Hole item activation.
+
+─────────────────────────────────────────────────────────────────────────────
+Examples
+─────────────────────────────────────────────────────────────────────────────
+
+  sounds/dookie.mp3          ← your custom fart
+  sounds/tornado_hit.wav     ← your custom WHACK
+  sounds/bank.ogg            ← your custom cha-ching
+
+That's it. Hard-refresh (Ctrl+Shift+R) after adding files so the new audio is
+fetched and decoded.
