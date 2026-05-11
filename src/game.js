@@ -566,7 +566,12 @@ export class GameRoom {
       }
     }
 
-    if (this.phase === 'rolling') {
+    // Note: requestRoll / commit('reroll') flip phase to 'rolling' immediately
+    // (so the buttons hide) but defer beginRoll for up to 2 s to enforce the
+    // shake-sound minimum. During that window streaming is still false, so the
+    // physics-and-settle branch below must NOT run yet — otherwise it sees
+    // stationary dice, fires onSettle prematurely, and leaves the shake stuck.
+    if (this.phase === 'rolling' && this.streaming) {
       // Saw blade chaos: keep nudging the saw die for SAW_BLADE_DURATION_MS.
       if (this.activeEffects.sawBlade) {
         this.physics.tickSawBlade(this.activeEffects.sawBlade.dieIndex, dt);
