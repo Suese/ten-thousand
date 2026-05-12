@@ -182,6 +182,20 @@ export class GameRoom {
     this.inventories[fromId][itemId] = (this.inventories[fromId][itemId] || 0) + 1;
     this.emitEvent({ type: 'log', text: `${this.nameOf(fromId)} bought ${item.icon} ${item.name} (-${item.cost}).` });
     this.emitEvent({ type: 'purchase', playerId: fromId, itemId, cost: item.cost });
+    // If a purchase drops every player back below WIN_SCORE, cancel sudden
+    // death — there's nothing to race to anymore, so play continues normally.
+    if (this.finalTriggeredBy !== null) {
+      const anyoneOver = Object.values(this.totalScores).some(s => s >= WIN_SCORE);
+      if (!anyoneOver) {
+        this.finalTriggeredBy = null;
+        this.finalRemaining = [];
+        this.emitEvent({
+          type: 'log',
+          text: `No one's above ${WIN_SCORE} anymore — sudden death cancelled.`,
+          kind: 'bank',
+        });
+      }
+    }
     this.emitState();
   }
 

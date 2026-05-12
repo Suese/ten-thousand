@@ -5,7 +5,7 @@ import * as ui from './ui.js';
 import { SoundFX } from './audio.js';
 import { confettiBurst, coinShower, coinBurst, scorePopup, flashScreen, shake, centerOf, bloodSplat, comicBurstFlick, comicBurstHit, qFlash } from './effects.js';
 import { ITEMS } from './items.js';
-import { colorHexForPlayer } from './colors.js';
+import { colorHexForPlayer, colorForPlayer } from './colors.js';
 import { scheduleAfter, tickClock } from './clock.js';
 
 // ---- Bootstrap scene + audio ----
@@ -219,7 +219,9 @@ function applyRemoteCursor(playerId, normX, normY) {
   el.style.left = (normX * window.innerWidth) + 'px';
   el.style.top = (normY * window.innerHeight) + 'px';
   if (currentState) {
-    const color = colorHexForPlayer(currentState, playerId);
+    // colorForPlayer returns a CSS hex string ('#ff...'); colorHexForPlayer
+    // returns an int for three.js materials, which would parse as 0 in CSS.
+    const color = colorForPlayer(currentState, playerId);
     if (color) el.style.setProperty('--cursor-color', color);
     const name = currentState.players?.find(p => p.id === playerId)?.name;
     if (name) el.querySelector('.remote-cursor-name').textContent = name;
@@ -892,8 +894,16 @@ function applyEvent(event) {
 }
 
 function redrawSelection() {
+  // Active player drives rings from their LOCAL selection (responsive); every
+  // other player mirrors the authoritative state.selection so they see what
+  // the active player is picking in real time.
+  const activeIsMe = currentState && currentState.currentPlayerId === myId;
+  const ringColor = currentState
+    ? colorHexForPlayer(currentState, currentState.currentPlayerId)
+    : 0xffe07a;
+  const shown = activeIsMe ? selection : new Set(currentState?.selection || []);
   for (let i = 0; i < 5; i++) {
-    scene.setSelected(i, selection.has(i));
+    scene.setSelected(i, shown.has(i), ringColor);
   }
   if (!currentState) return;
   const values = [...selection].map(i => currentState.diceState[i]?.value).filter(v => v != null);
