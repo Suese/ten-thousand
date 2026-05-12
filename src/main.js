@@ -192,6 +192,67 @@ let currentState = null;
 let selection = new Set();  // dice indices selected for keep
 let lastSettledLocked = null;
 
+// ---- Remote cursors -------------------------------------------------------
+// Each remote player gets a DOM cursor div tracked here by playerId. We update
+// it whenever a 'cursor' event lands and remove it when the player disappears
+// from state.players. The cursor SVG is a stylized pointer with a name label.
+const _remoteCursors = new Map();
+const CURSOR_SVG = `
+  <svg viewBox="0 0 14 16" width="20" height="22" aria-hidden="true">
+    <path d="M1.2,1.2 L1.2,13.4 L4.5,10.4 L7.4,15.2 L9.5,14.1 L6.7,9.4 L11.2,9.4 Z"/>
+  </svg>
+`;
+function ensureCursorEl(playerId) {
+  let el = _remoteCursors.get(playerId);
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'remote-cursor';
+    el.innerHTML = CURSOR_SVG + '<div class="remote-cursor-name"></div>';
+    document.body.appendChild(el);
+    _remoteCursors.set(playerId, el);
+  }
+  return el;
+}
+function applyRemoteCursor(playerId, normX, normY) {
+  if (playerId === myId) return;
+  const el = ensureCursorEl(playerId);
+  el.style.left = (normX * window.innerWidth) + 'px';
+  el.style.top = (normY * window.innerHeight) + 'px';
+  if (currentState) {
+    const color = colorHexForPlayer(currentState, playerId);
+    if (color) el.style.setProperty('--cursor-color', color);
+    const name = currentState.players?.find(p => p.id === playerId)?.name;
+    if (name) el.querySelector('.remote-cursor-name').textContent = name;
+  }
+}
+function pruneCursors(state) {
+  if (!state || !state.players) return;
+  const valid = new Set(state.players.map(p => p.id));
+  for (const [pid, el] of _remoteCursors) {
+    if (!valid.has(pid)) {
+      el.remove();
+      _remoteCursors.delete(pid);
+    }
+  }
+}
+
+// Local cursor → broadcast at ~30 Hz so other players see it without flooding.
+let _lastCursorSentTs = 0;
+function maybeSendCursor(clientX, clientY) {
+  const now = performance.now();
+  if (now - _lastCursorSentTs < 33) return;
+  if (mode !== 'host' && mode !== 'client') return;
+  _lastCursorSentTs = now;
+  const x = clientX / Math.max(1, window.innerWidth);
+  const y = clientY / Math.max(1, window.innerHeight);
+  sendAction({ name: 'cursor', x, y });
+}
+window.addEventListener('pointermove', (e) => maybeSendCursor(e.clientX, e.clientY));
+window.addEventListener('touchmove', (e) => {
+  const t = e.touches?.[0];
+  if (t) maybeSendCursor(t.clientX, t.clientY);
+}, { passive: true });
+
 // ---- Lobby wiring ----
 ui.bindLobby({
   onHost: () => startHost(),
@@ -564,6 +625,9 @@ function applyState(state) {
       selection.clear();
     }
 
+    // Remove cursors for players who've left the room.
+    pruneCursors(state);
+
     // Render selection rings — local set for active player (responsive),
     // authoritative state.selection for spectators. Color = the active player's color.
     const isMyTurn = state.currentPlayerId === myId;
@@ -607,6 +671,9 @@ function applyEvent(event) {
       break;
     case 'collision':
       sfx.collide(event.kind, event.intensity);
+      break;
+    case 'cursor':
+      applyRemoteCursor(event.playerId, event.x, event.y);
       break;
     case 'kept_animation': {
       // Each newly-or-still-locked die slides into its kept-row pose, one at

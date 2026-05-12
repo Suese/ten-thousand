@@ -495,6 +495,39 @@ button.primary:hover:not(:disabled) {
   justify-content: center;
 }
 
+/* Networked cursor for each remote player. Position is set in JS as fixed
+   px from a normalized 0..1 coord; .remote-cursor-arrow inherits its fill
+   from --cursor-color, which we set per player. */
+.remote-cursor {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9000;
+  transform: translate(-2px, -2px);
+  transition: left 0.06s linear, top 0.06s linear;
+  --cursor-color: #ffffff;
+}
+.remote-cursor svg {
+  display: block;
+  fill: var(--cursor-color);
+  stroke: rgba(0, 0, 0, 0.85);
+  stroke-width: 1.2;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+.remote-cursor .remote-cursor-name {
+  position: absolute;
+  left: 18px;
+  top: 14px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  border-left: 2px solid var(--cursor-color);
+}
+
 #log-panel {
   position: absolute;
   bottom: 24px;
@@ -545,6 +578,30 @@ button.primary:hover:not(:disabled) {
 }
 #log-toggle:hover { background: rgba(255, 255, 255, 0.12); }
 #log-panel.minimized #log-toggle { transform: rotate(180deg); }
+
+/* Latest-entry preview — only visible when the panel is minimized, so the
+   player still sees the most recent log line at a glance. */
+#log-preview {
+  position: absolute;
+  top: 7px;
+  left: 10px;
+  right: 36px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  color: #d4dbe7;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  transition: opacity 0.25s ease;
+}
+#log-preview.you { color: #ffe07a; }
+#log-preview.bust { color: #ff7c8a; }
+#log-preview.bank { color: #7cf3a0; }
+#log-panel.minimized #log-preview { opacity: 1; }
 #log {
   max-height: 200px;
   overflow-y: auto;

@@ -101,7 +101,16 @@ export class GameRoom {
       case 'set_selection': this.setSelection(fromId, action.indices); break;
       case 'purchase':      this.purchaseItem(fromId, action.itemId); break;
       case 'use_item':      this.useItem(fromId, action.itemId, action.params || {}); break;
+      case 'cursor':        this.cursorRelay(fromId, action.x, action.y); break;
     }
+  }
+
+  // Cursor positions are ephemeral — no state snapshot, just re-broadcast as
+  // an event so every peer can render the senders' cursors.
+  cursorRelay(fromId, x, y) {
+    if (typeof x !== 'number' || typeof y !== 'number') return;
+    if (!this.players.find(p => p.id === fromId)) return;
+    this.emitEvent({ type: 'cursor', playerId: fromId, x, y });
   }
 
   shakeStart(fromId) {
@@ -183,6 +192,14 @@ export class GameRoom {
     if (!inv || !inv[itemId]) return;
     const isMyTurn = this.order[this.currentIdx] === fromId;
 
+    // Item use is blocked during the bank animation window — between the
+    // bank commit and the next turn's startTurn, items would have nothing
+    // useful to land on (locked dice all about to vanish) and just get wasted.
+    if (this._bankingInProgress) {
+      this.emitEvent({ type: 'log', text: `Can't use ${item.name} during a bank.`, kind: 'reject' });
+      return;
+    }
+
     // Phase gate
     const okPhase = (
       (item.when === 'own_pre_roll'      && this.phase === 'awaiting_roll'   && isMyTurn) ||
@@ -245,6 +262,16 @@ export class GameRoom {
           this.emitEvent({ type: 'portable_hole_animate', dieIndex: idx, position: pos });
           this._scheduleAt(1100, () => {
             this.physics.parkIndices([idx]); // also re-enables collision response
+            // If the hole ate the last actionable die during awaiting_keep,
+            // auto-bank what's already in the keep — otherwise the player
+            // would just sit there until the play timer expires and busts.
+            if (
+              this.phase === 'awaiting_keep'
+              && this.turnPoints > 0
+              && this._currentActiveValues().length === 0
+            ) {
+              this._finalizeBank(this.order[this.currentIdx], 0);
+            }
           });
         }
         extra = { targetPlayerId, dieIndex: idx };
@@ -907,6 +934,55 @@ export class GameRoom {
 
   // --- Player commit actions ---
 
+  // Shared bank finalization — called both by an explicit commit('bank') and
+  // by the portable-hole auto-bank when the player gets stranded with no
+  // actionable dice. lerpDelayMs is the time the client should wait before
+  // starting the per-die coin-burst sequence (matches the kept-row lerp from
+  // commit; auto-bank passes 0 because the locked dice are already in place).
+  _finalizeBank(byId, lerpDelayMs) {
+    const banked = this.turnPoints;
+    const total = (this.totalScores[byId] || 0) + banked;
+    this.totalScores[byId] = total;
+    this._playTimerTs = null;
+    const bankedIndices = [];
+    const remainingIndices = [];
+    for (let i = 0; i < this.diceState.length; i++) {
+      if (this.diceState[i].locked) {
+        bankedIndices.push(i);
+      } else if (!this.activeEffects.destroyed.has(i) && !this.activeEffects.hiddenNow.has(i)) {
+        remainingIndices.push(i);
+      }
+    }
+    // Banking lock: while set, the awaiting_keep tick skips disturbance /
+    // bust evaluation so we don't briefly flash a "Bust in 5s" banner just
+    // because the un-banked dice no longer score on their own. Also gates
+    // shop-item use so nobody wastes items during the celebration.
+    this._bankingInProgress = true;
+    // Drop out of awaiting_keep right away so the active player's Keep /
+    // Bank buttons disappear the instant the bank fires — they won't come
+    // back until the next player's turn flips phase to awaiting_roll.
+    this.phase = 'rolling';
+    this.emitState();
+    const perBurstMs = 375;
+    const burstFadeMs = 1500;
+    const bankAnimMs = lerpDelayMs
+      + Math.max(0, bankedIndices.length - 1) * perBurstMs
+      + burstFadeMs;
+    this.emitEvent({
+      type: 'bank',
+      playerId: byId, banked, total,
+      indices: bankedIndices,
+      remainingIndices,
+      lerpDelayMs,
+      perBurstMs,
+    });
+    this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${banked}. Total ${total}.`, kind: 'bank' });
+    this._scheduleAt(bankAnimMs, () => {
+      this._bankingInProgress = false;
+      this.checkWinAndEndTurn(byId);
+    });
+  }
+
   commit(byId, action, indices) {
     if (this.phase !== 'awaiting_keep') return;
     if (this.order[this.currentIdx] !== byId) return;
@@ -974,49 +1050,7 @@ export class GameRoom {
     }
 
     if (action === 'bank') {
-      const banked = this.turnPoints;
-      const total = (this.totalScores[byId] || 0) + banked;
-      this.totalScores[byId] = total;
-      const bankedIndices = [];
-      const remainingIndices = [];
-      for (let i = 0; i < this.diceState.length; i++) {
-        if (this.diceState[i].locked) {
-          bankedIndices.push(i);
-        } else if (!this.activeEffects.destroyed.has(i) && !this.activeEffects.hiddenNow.has(i)) {
-          remainingIndices.push(i);
-        }
-      }
-      // Banking lock: while set, the awaiting_keep tick skips disturbance /
-      // bust evaluation so we don't briefly flash a "Bust in 5s" banner just
-      // because the un-banked dice no longer score on their own.
-      this._bankingInProgress = true;
-      // Drop out of awaiting_keep right away so the active player's Keep /
-      // Bank buttons disappear the instant they click bank — they won't come
-      // back until the next player's turn flips phase to awaiting_roll.
-      this.phase = 'rolling';
-      this.emitState();
-      // New flow: unbanked dice Q-flash out at t=0, banked dice lerp into the
-      // keep row (also at t=0), then once the lerp finishes the coin bursts
-      // fire 0.75 s apart. By the time the bursts run there's nothing else on
-      // the table.
-      const perBurstMs = 375;
-      const burstFadeMs = 1500;
-      const bankAnimMs = lerpTotalMs
-        + Math.max(0, bankedIndices.length - 1) * perBurstMs
-        + burstFadeMs;
-      this.emitEvent({
-        type: 'bank',
-        playerId: byId, banked, total,
-        indices: bankedIndices,
-        remainingIndices,
-        lerpDelayMs: lerpTotalMs,
-        perBurstMs,
-      });
-      this.emitEvent({ type: 'log', text: `${this.nameOf(byId)} banks ${banked}. Total ${total}.`, kind: 'bank' });
-      this._scheduleAt(bankAnimMs, () => {
-        this._bankingInProgress = false;
-        this.checkWinAndEndTurn(byId);
-      });
+      this._finalizeBank(byId, lerpTotalMs);
     } else if (action === 'reroll') {
       // Bonus check (only after the first roll, only on a hot-dice-bound commit).
       if (this._turnRollCount > 1 && this.diceState.every(d => d.locked)) {

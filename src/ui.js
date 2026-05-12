@@ -39,6 +39,7 @@ const els = {
   log: () => $('log'),
   logPanel: () => $('log-panel'),
   logToggle: () => $('log-toggle'),
+  logPreview: () => $('log-preview'),
   endTitle: () => $('end-title'),
   finalScores: () => $('final-scores'),
   playAgainBtn: () => $('play-again-btn'),
@@ -421,11 +422,20 @@ export function log(text, kind = '') {
     log.removeChild(log.firstChild);
     logEntries--;
   }
+  // Mirror the latest entry to the preview span so it stays visible while the
+  // panel is minimized.
+  const preview = els.logPreview();
+  if (preview) {
+    preview.textContent = text;
+    preview.className = kind || '';
+  }
 }
 
 export function clearLog() {
   els.log().innerHTML = '';
   logEntries = 0;
+  const preview = els.logPreview();
+  if (preview) { preview.textContent = ''; preview.className = ''; }
 }
 
 // ---- Shop modal ----
