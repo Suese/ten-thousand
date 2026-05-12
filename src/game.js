@@ -75,6 +75,7 @@ export class GameRoom {
 
     // ----- Shop / item state -----
     this.inventories = {};       // playerId -> { itemId: count }
+    this.purchases = {};         // playerId -> { itemId: count } — purchase history for end-of-game receipts
     this.selection = [];         // dice indices the active player has highlighted
     this.activeEffects = {
       portableHole: {},          // playerId -> [dieIndex...] absent for next roll
@@ -180,7 +181,10 @@ export class GameRoom {
     this.totalScores[fromId] = balance - item.cost;
     if (!this.inventories[fromId]) this.inventories[fromId] = {};
     this.inventories[fromId][itemId] = (this.inventories[fromId][itemId] || 0) + 1;
-    this.emitEvent({ type: 'log', text: `${this.nameOf(fromId)} bought ${item.icon} ${item.name} (-${item.cost}).` });
+    if (!this.purchases[fromId]) this.purchases[fromId] = {};
+    this.purchases[fromId][itemId] = (this.purchases[fromId][itemId] || 0) + 1;
+    // Keep purchases secret — only reveal that a purchase happened, not what.
+    this.emitEvent({ type: 'log', text: `${this.nameOf(fromId)} purchased an item from the shop.` });
     this.emitEvent({ type: 'purchase', playerId: fromId, itemId, cost: item.cost });
     // If a purchase drops every player back below WIN_SCORE, cancel sudden
     // death — there's nothing to race to anymore, so play continues normally.
@@ -456,8 +460,10 @@ export class GameRoom {
     if (this.phase !== 'lobby') return;
     if (this.players.length < 1) return;
     // Fresh game — wipe every player's shop inventory so leftovers from a
-    // previous match don't carry over.
+    // previous match don't carry over. Also reset the purchase history so
+    // the end-of-game receipt only reflects this game's spending.
     this.inventories = {};
+    this.purchases = {};
     this.beginOpeningRoll();
   }
 
@@ -1184,6 +1190,9 @@ export class GameRoom {
       // Shop state
       inventories: Object.fromEntries(
         Object.entries(this.inventories).map(([k, v]) => [k, { ...v }])
+      ),
+      purchases: Object.fromEntries(
+        Object.entries(this.purchases).map(([k, v]) => [k, { ...v }])
       ),
       selection: this.selection.slice(),
       destroyed: [...this.activeEffects.destroyed],

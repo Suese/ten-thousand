@@ -250,6 +250,10 @@ function maybeSendCursor(clientX, clientY) {
   const now = performance.now();
   if (now - _lastCursorSentTs < 33) return;
   if (mode !== 'host' && mode !== 'client') return;
+  // Don't reveal what we're hovering while the shop is open — keeps the
+  // browsing private from other players.
+  const shop = document.getElementById('shop-modal');
+  if (shop && !shop.classList.contains('hidden')) return;
   _lastCursorSentTs = now;
   const x = clientX / Math.max(1, window.innerWidth);
   const y = clientY / Math.max(1, window.innerHeight);

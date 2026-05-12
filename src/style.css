@@ -625,6 +625,69 @@ button.primary:hover:not(:disabled) {
 #log .entry.bust { color: #ff7c8a; }
 #log .entry.bank { color: #7cf3a0; }
 
+/* End screen — flex row puts the final scoreboard on the left and the
+   purchase receipts on the right. */
+.end-panel { max-width: 760px; }
+.end-body {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.end-body > #final-scores { flex: 1 1 0; min-width: 0; margin: 0; }
+.end-body > #receipts {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* Actual receipt paper — pale off-white, soft drop shadow, narrow column,
+   monospaced text, zig-zag tear edges top and bottom via clip-path. */
+.receipt {
+  position: relative;
+  background: linear-gradient(180deg, #fbf5e3 0%, #f4ecd2 100%);
+  color: #2a1b08;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 22px 14px 24px;
+  /* Triangular tear edges: 14 zigzag points top and bottom, flat sides. */
+  clip-path: polygon(
+    0% 6px, 4% 0%, 8% 6px, 12% 0%, 16% 6px, 20% 0%, 24% 6px, 28% 0%, 32% 6px, 36% 0%, 40% 6px, 44% 0%, 48% 6px, 52% 0%, 56% 6px, 60% 0%, 64% 6px, 68% 0%, 72% 6px, 76% 0%, 80% 6px, 84% 0%, 88% 6px, 92% 0%, 96% 6px, 100% 0%,
+    100% 100%,
+    96% calc(100% - 6px), 92% 100%, 88% calc(100% - 6px), 84% 100%, 80% calc(100% - 6px), 76% 100%, 72% calc(100% - 6px), 68% 100%, 64% calc(100% - 6px), 60% 100%, 56% calc(100% - 6px), 52% 100%, 48% calc(100% - 6px), 44% 100%, 40% calc(100% - 6px), 36% 100%, 32% calc(100% - 6px), 28% 100%, 24% calc(100% - 6px), 20% 100%, 16% calc(100% - 6px), 12% 100%, 8% calc(100% - 6px), 4% 100%, 0% calc(100% - 6px)
+  );
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+}
+.receipt .header {
+  text-align: center;
+  border-bottom: 1px dashed #8a6a2a;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+.receipt .header .name { font-weight: 800; letter-spacing: 0.5px; font-size: 13px; }
+.receipt .header .sub { font-size: 10px; opacity: 0.75; }
+.receipt .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.receipt .row .desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.receipt .row .amt { flex: 0 0 auto; }
+.receipt .total {
+  border-top: 1px dashed #8a6a2a;
+  margin-top: 8px;
+  padding-top: 6px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.receipt .empty { text-align: center; font-style: italic; opacity: 0.6; padding: 4px 0; }
+
 #final-scores {
   list-style: none;
   padding: 0;

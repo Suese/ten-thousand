@@ -540,4 +540,70 @@ export function renderEnd(state, myId) {
     list.appendChild(li);
   }
   els.endTitle().textContent = sorted[0] ? `${sorted[0].name} wins!` : 'Game over';
+
+  // Build per-player purchase receipts.
+  const receiptsEl = document.getElementById('receipts');
+  if (receiptsEl) {
+    receiptsEl.innerHTML = '';
+    for (const p of sorted) {
+      const counts = (state.purchases && state.purchases[p.id]) || {};
+      receiptsEl.appendChild(buildReceipt(p, counts, myId));
+    }
+  }
+}
+
+function buildReceipt(player, counts, myId) {
+  const wrap = document.createElement('div');
+  wrap.className = 'receipt';
+  const header = document.createElement('div');
+  header.className = 'header';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'name';
+  nameEl.textContent = player.name + (player.id === myId ? ' (you)' : '');
+  const sub = document.createElement('div');
+  sub.className = 'sub';
+  sub.textContent = 'SHOP RECEIPT';
+  header.appendChild(nameEl);
+  header.appendChild(sub);
+  wrap.appendChild(header);
+
+  let total = 0;
+  const entries = Object.entries(counts).filter(([, n]) => n > 0);
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = '— no purchases —';
+    wrap.appendChild(empty);
+  } else {
+    for (const [itemId, qty] of entries) {
+      const item = ITEMS[itemId];
+      if (!item) continue;
+      const cost = item.cost * qty;
+      total += cost;
+      const row = document.createElement('div');
+      row.className = 'row';
+      const desc = document.createElement('span');
+      desc.className = 'desc';
+      desc.textContent = `${item.icon} ${item.name}${qty > 1 ? ` x${qty}` : ''}`;
+      const amt = document.createElement('span');
+      amt.className = 'amt';
+      amt.textContent = '-' + cost;
+      row.appendChild(desc);
+      row.appendChild(amt);
+      wrap.appendChild(row);
+    }
+  }
+
+  const totalRow = document.createElement('div');
+  totalRow.className = 'total row';
+  const lbl = document.createElement('span');
+  lbl.className = 'desc';
+  lbl.textContent = 'Total';
+  const sum = document.createElement('span');
+  sum.className = 'amt';
+  sum.textContent = '-' + total;
+  totalRow.appendChild(lbl);
+  totalRow.appendChild(sum);
+  wrap.appendChild(totalRow);
+  return wrap;
 }
