@@ -519,6 +519,24 @@ export class Scene {
     requestAnimationFrame(tick);
   }
 
+  // Casts a ray from the camera through the given client coords and returns
+  // the world-space point where it intersects the table plane (y = 0), or
+  // null if the ray points away from the table. Used to share cursor
+  // positions in a camera-independent space.
+  screenToTablePoint(clientX, clientY) {
+    this.pointer.x = (clientX / window.innerWidth) * 2 - 1;
+    this.pointer.y = -(clientY / window.innerHeight) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const ray = this.raycaster.ray;
+    if (Math.abs(ray.direction.y) < 1e-6) return null;
+    const t = -ray.origin.y / ray.direction.y;
+    if (t <= 0) return null;
+    return {
+      x: ray.origin.x + ray.direction.x * t,
+      z: ray.origin.z + ray.direction.z * t,
+    };
+  }
+
   // Screen-space [x, y] of a die's current world position. Returns null if
   // the die isn't currently on the table (mesh hidden or parked off-stage at
   // y < -5) — callers can use the null return to skip effects that wouldn't

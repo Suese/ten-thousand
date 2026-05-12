@@ -102,16 +102,19 @@ export class GameRoom {
       case 'set_selection': this.setSelection(fromId, action.indices); break;
       case 'purchase':      this.purchaseItem(fromId, action.itemId); break;
       case 'use_item':      this.useItem(fromId, action.itemId, action.params || {}); break;
-      case 'cursor':        this.cursorRelay(fromId, action.x, action.y); break;
+      case 'cursor':        this.cursorRelay(fromId, action.x, action.z); break;
     }
   }
 
   // Cursor positions are ephemeral — no state snapshot, just re-broadcast as
-  // an event so every peer can render the senders' cursors.
-  cursorRelay(fromId, x, y) {
-    if (typeof x !== 'number' || typeof y !== 'number') return;
+  // an event so every peer can render the senders' cursors. Coordinates are
+  // world-space points on the table plane (x, z), not normalized screen
+  // coords, so receivers can re-project through their own camera.
+  cursorRelay(fromId, x, z) {
+    if (typeof x !== 'number' || typeof z !== 'number') return;
+    if (!isFinite(x) || !isFinite(z)) return;
     if (!this.players.find(p => p.id === fromId)) return;
-    this.emitEvent({ type: 'cursor', playerId: fromId, x, y });
+    this.emitEvent({ type: 'cursor', playerId: fromId, x, z });
   }
 
   shakeStart(fromId) {

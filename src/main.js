@@ -213,11 +213,14 @@ function ensureCursorEl(playerId) {
   }
   return el;
 }
-function applyRemoteCursor(playerId, normX, normY) {
+function applyRemoteCursor(playerId, tableX, tableZ) {
   if (playerId === myId) return;
   const el = ensureCursorEl(playerId);
-  el.style.left = (normX * window.innerWidth) + 'px';
-  el.style.top = (normY * window.innerHeight) + 'px';
+  // Project the sender's table-plane point back to OUR screen so the cursor
+  // lands on the same in-world spot regardless of camera/window differences.
+  const screen = scene.worldToScreen([tableX, 0, tableZ]);
+  el.style.left = screen.x + 'px';
+  el.style.top = screen.y + 'px';
   // colorForPlayer always returns a CSS hex string from PLAYER_COLORS, even
   // when state isn't ready yet (it falls back to PLAYER_COLORS[0]). Set the
   // CSS variable AND the path's fill attribute directly so cursor color
@@ -245,19 +248,21 @@ function pruneCursors(state) {
 }
 
 // Local cursor → broadcast at ~30 Hz so other players see it without flooding.
+// We send the world-space (table plane) point the mouse hovers over so every
+// peer can re-project it through their own camera and see the cursor anchored
+// to the table, not to a window-sized normalized coord that drifts between
+// clients with different aspect ratios / parallax shifts.
 let _lastCursorSentTs = 0;
 function maybeSendCursor(clientX, clientY) {
   const now = performance.now();
   if (now - _lastCursorSentTs < 33) return;
   if (mode !== 'host' && mode !== 'client') return;
-  // Don't reveal what we're hovering while the shop is open — keeps the
-  // browsing private from other players.
   const shop = document.getElementById('shop-modal');
   if (shop && !shop.classList.contains('hidden')) return;
+  const p = scene.screenToTablePoint(clientX, clientY);
+  if (!p) return; // ray missed the table (looking above the horizon)
   _lastCursorSentTs = now;
-  const x = clientX / Math.max(1, window.innerWidth);
-  const y = clientY / Math.max(1, window.innerHeight);
-  sendAction({ name: 'cursor', x, y });
+  sendAction({ name: 'cursor', x: p.x, z: p.z });
 }
 window.addEventListener('pointermove', (e) => maybeSendCursor(e.clientX, e.clientY));
 window.addEventListener('touchmove', (e) => {
@@ -685,7 +690,7 @@ function applyEvent(event) {
       sfx.collide(event.kind, event.intensity);
       break;
     case 'cursor':
-      applyRemoteCursor(event.playerId, event.x, event.y);
+      applyRemoteCursor(event.playerId, event.x, event.z);
       break;
     case 'kept_animation': {
       // Each newly-or-still-locked die slides into its kept-row pose, one at
