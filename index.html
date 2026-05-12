@@ -53,18 +53,20 @@
           <input id="name-input" type="text" maxlength="16" placeholder="Player" />
         </label>
 
-        <div class="row">
+        <div id="lobby-host" class="row">
           <button id="host-btn" class="primary">Host a game</button>
         </div>
 
-        <div class="divider"><span>or</span></div>
+        <div id="lobby-divider" class="divider"><span>or</span></div>
 
-        <label>
-          Room link or code
-          <input id="join-code" type="text" maxlength="500" placeholder="https://… or abc-123-xyz" />
-        </label>
-        <div class="row">
-          <button id="join-btn">Join game</button>
+        <div id="lobby-join">
+          <label>
+            Room link or code
+            <input id="join-code" type="text" maxlength="500" placeholder="https://… or abc-123-xyz" />
+          </label>
+          <div class="row">
+            <button id="join-btn" class="primary">Join game</button>
+          </div>
         </div>
 
         <div id="lobby-status" class="status"></div>

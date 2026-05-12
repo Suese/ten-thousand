@@ -78,13 +78,24 @@ export function bindLobby({ onHost, onJoin }) {
   const saved = localStorage.getItem('diceName');
   if (saved) els.nameInput().value = saved;
 
-  // If URL has ?room= , prefill the code and focus the name field so the
-  // arriving friend's first action is to type their name.
+  // Streamline the lobby based on how the user arrived:
+  //   - With ?room=<code>: they're joining a friend — hide the Host button and
+  //     the "or" divider; prefill the code and focus the name field.
+  //   - Without ?room=: they're starting fresh — hide the Join section so the
+  //     only call to action is "Host a game".
   const url = new URL(window.location.href);
   const room = url.searchParams.get('room');
+  const hostRow = document.getElementById('lobby-host');
+  const joinSection = document.getElementById('lobby-join');
+  const divider = document.getElementById('lobby-divider');
   if (room) {
     els.joinCode().value = room;
+    if (hostRow) hostRow.style.display = 'none';
+    if (divider) divider.style.display = 'none';
     scheduleAfter(0, () => els.nameInput().focus());
+  } else {
+    if (joinSection) joinSection.style.display = 'none';
+    if (divider) divider.style.display = 'none';
   }
 }
 
