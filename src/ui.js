@@ -92,6 +92,9 @@ export function bindLobby({ onHost, onJoin }) {
     els.joinCode().value = room;
     if (hostRow) hostRow.style.display = 'none';
     if (divider) divider.style.display = 'none';
+    // Code is already in hand — hide the input label, just show the Join btn.
+    const codeLabel = document.getElementById('lobby-join-code-label');
+    if (codeLabel) codeLabel.style.display = 'none';
     scheduleAfter(0, () => els.nameInput().focus());
   } else {
     if (joinSection) joinSection.style.display = 'none';
