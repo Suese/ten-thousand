@@ -70,6 +70,7 @@ export function scorePopup(text, x, y, opts = {}) {
   if (opts.bust) el.classList.add('bust');
   if (opts.bank) el.classList.add('bank');
   if (opts.bonus) el.classList.add('bonus');
+  if (opts.color) el.style.color = opts.color;
   el.textContent = text;
   el.style.left = x + 'px';
   el.style.top = y + 'px';
@@ -121,25 +122,28 @@ const COMIC_PALETTES = [
 const FLICK_WORDS = ['SLAP!', 'POW!', 'BIFF!', 'ZAP!', 'BAM!', 'THWAP!'];
 const HIT_WORDS = ['KABLAM!', 'WHAM!', 'BOOM!', 'SOCK!', 'KAPOW!', 'WHACK!', 'CRASH!'];
 
-export function comicBurst(x, y, text = 'POW!') {
+// `bgColor` overrides the random palette — used to tint a burst in the
+// activating player's color so observers know who's doing what.
+export function comicBurst(x, y, text = 'POW!', bgColor = null) {
   const palette = COMIC_PALETTES[(Math.random() * COMIC_PALETTES.length) | 0];
+  const bg = bgColor || palette.bg;
   const rot = (Math.random() - 0.5) * 30;
   const el = document.createElement('div');
   el.className = 'comic-burst';
   el.style.left = x + 'px';
   el.style.top = y + 'px';
-  el.style.setProperty('--burst-bg', palette.bg);
+  el.style.setProperty('--burst-bg', bg);
   el.style.setProperty('--burst-fg', palette.fg);
   el.style.setProperty('--burst-rot', rot + 'deg');
   el.innerHTML = `<span>${text}</span>`;
   document.body.appendChild(el);
   scheduleAfter(900, () => el.remove());
 }
-export function comicBurstFlick(x, y) {
-  comicBurst(x, y, FLICK_WORDS[(Math.random() * FLICK_WORDS.length) | 0]);
+export function comicBurstFlick(x, y, bgColor = null) {
+  comicBurst(x, y, FLICK_WORDS[(Math.random() * FLICK_WORDS.length) | 0], bgColor);
 }
-export function comicBurstHit(x, y) {
-  comicBurst(x, y, HIT_WORDS[(Math.random() * HIT_WORDS.length) | 0]);
+export function comicBurstHit(x, y, bgColor = null) {
+  comicBurst(x, y, HIT_WORDS[(Math.random() * HIT_WORDS.length) | 0], bgColor);
 }
 
 // Star Trek TNG "Q" flash — a bright cross-shaped light flare that pops in,

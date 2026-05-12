@@ -218,11 +218,17 @@ function applyRemoteCursor(playerId, normX, normY) {
   const el = ensureCursorEl(playerId);
   el.style.left = (normX * window.innerWidth) + 'px';
   el.style.top = (normY * window.innerHeight) + 'px';
+  // colorForPlayer always returns a CSS hex string from PLAYER_COLORS, even
+  // when state isn't ready yet (it falls back to PLAYER_COLORS[0]). Set the
+  // CSS variable AND the path's fill attribute directly so cursor color
+  // works regardless of SVG inheritance quirks.
+  const color = colorForPlayer(currentState, playerId);
+  if (color) {
+    el.style.setProperty('--cursor-color', color);
+    const path = el.querySelector('svg path');
+    if (path) path.setAttribute('fill', color);
+  }
   if (currentState) {
-    // colorForPlayer returns a CSS hex string ('#ff...'); colorHexForPlayer
-    // returns an int for three.js materials, which would parse as 0 in CSS.
-    const color = colorForPlayer(currentState, playerId);
-    if (color) el.style.setProperty('--cursor-color', color);
     const name = currentState.players?.find(p => p.id === playerId)?.name;
     if (name) el.querySelector('.remote-cursor-name').textContent = name;
   }
@@ -706,10 +712,14 @@ function applyEvent(event) {
       for (const i of event.indices || []) selection.delete(i);
       redrawSelection();
       break;
-    case 'portable_hole_animate':
-      scene.playPortableHoleAnimation(event.dieIndex, event.position);
+    case 'portable_hole_animate': {
+      const ringHex = currentState && event.playerId
+        ? colorHexForPlayer(currentState, event.playerId)
+        : null;
+      scene.playPortableHoleAnimation(event.dieIndex, event.position, ringHex);
       sfx.glide(900, 90, 0.5, 'sine', 0.32);
       break;
+    }
     case 'blood_splat': {
       if (!event.point) break;
       const screen = scene.worldToScreen(event.point);
@@ -856,17 +866,20 @@ function applyEvent(event) {
       };
       idMap[event.itemId]?.();
       const item = ITEMS[event.itemId];
+      // Activating player's color tints both the announcement sign and the
+      // comic burst so observers can tell at a glance who pulled the trigger.
+      const playerColor = currentState
+        ? colorForPlayer(currentState, event.playerId)
+        : null;
       if (item) {
-        // Shop item activation sign — lower-right corner instead of center.
         const px = window.innerWidth - 200;
         const py = window.innerHeight - 100;
-        scorePopup(`${item.icon} ${item.name}!`, px, py, { big: true });
+        scorePopup(`${item.icon} ${item.name}!`, px, py, { big: true, color: playerColor });
       }
       flashScreen('#ffd400', 0.18);
-      // Cartoony comic burst at the flick hit point
       if (event.itemId === 'flick' && Array.isArray(event.hitPoint)) {
         const screen = scene.worldToScreen(event.hitPoint);
-        comicBurstFlick(screen.x, screen.y);
+        comicBurstFlick(screen.x, screen.y, playerColor);
       }
       break;
     }

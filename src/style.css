@@ -508,10 +508,14 @@ button.primary:hover:not(:disabled) {
 }
 .remote-cursor svg {
   display: block;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+/* Target the path directly — some browsers / inheritance edge cases let the
+   SVG path keep its implicit black fill if we only style the <svg>. */
+.remote-cursor svg path {
   fill: var(--cursor-color);
   stroke: rgba(0, 0, 0, 0.85);
   stroke-width: 1.2;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
 }
 .remote-cursor .remote-cursor-name {
   position: absolute;

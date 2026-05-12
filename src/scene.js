@@ -546,7 +546,7 @@ export class Scene {
   // The disc itself is opaque black with depth-write enabled, so the die — now
   // physically falling through the felt via cannon ghosting — is occluded as
   // it descends below table level, creating the "fell through" effect.
-  playPortableHoleAnimation(dieIndex, worldPos) {
+  playPortableHoleAnimation(dieIndex, worldPos, ringColorHex = null) {
     const sel = this.selectionRings[dieIndex];
     const lock = this.dieMeshes[dieIndex].userData.lockRing;
     sel.visible = false;
@@ -574,16 +574,39 @@ export class Scene {
     disc.renderOrder = -1;
     this.scene.add(disc);
 
+    // Optional rim ring in the activating player's color so it's obvious who
+    // dropped the hole on the table.
+    let ring = null, ringGeom = null, ringMat = null;
+    if (ringColorHex != null) {
+      ringGeom = new THREE.RingGeometry(0.95, 1.15, 36);
+      ringMat = new THREE.MeshBasicMaterial({
+        color: ringColorHex,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+      });
+      ring = new THREE.Mesh(ringGeom, ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(worldPos[0], 0.006, worldPos[2]);
+      ring.scale.setScalar(0.05);
+      this.scene.add(ring);
+    }
+
     const start = performance.now();
     const duration = 1100;
     const animate = (now) => {
       const t = Math.min(1, (now - start) / duration);
-      // Disc grows quickly, holds, then shrinks at the end.
       let scale;
       if (t < 0.18) scale = t / 0.18;
       else if (t > 0.85) scale = (1 - t) / 0.15;
       else scale = 1;
-      disc.scale.setScalar(0.1 + 0.95 * Math.max(0, Math.min(1, scale)));
+      const s = 0.1 + 0.95 * Math.max(0, Math.min(1, scale));
+      disc.scale.setScalar(s);
+      if (ring) {
+        ring.scale.setScalar(s);
+        if (ringMat) ringMat.opacity = 0.95 * Math.max(0, Math.min(1, scale));
+      }
 
       if (t < 1) {
         requestAnimationFrame(animate);
@@ -591,6 +614,11 @@ export class Scene {
         this.scene.remove(disc);
         discGeom.dispose();
         discMat.dispose();
+        if (ring) {
+          this.scene.remove(ring);
+          ringGeom.dispose();
+          ringMat.dispose();
+        }
       }
     };
     requestAnimationFrame(animate);

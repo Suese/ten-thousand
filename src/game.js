@@ -273,7 +273,7 @@ export class GameRoom {
           this.activeEffects.hiddenNow.add(idx);
           this.selection = this.selection.filter(i => i !== idx);
           this.physics.enterPortableHole(idx);
-          this.emitEvent({ type: 'portable_hole_animate', dieIndex: idx, position: pos });
+          this.emitEvent({ type: 'portable_hole_animate', dieIndex: idx, position: pos, playerId: fromId });
           this._scheduleAt(1100, () => {
             this.physics.parkIndices([idx]); // also re-enables collision response
             // If the hole ate the last actionable die during awaiting_keep,
