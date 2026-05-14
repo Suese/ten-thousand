@@ -654,6 +654,30 @@ export class Scene {
     const target = on ? m.userData.materialsGold : m.userData.materialsRed;
     if (target && m.material !== target) m.material = target;
   }
+
+  // Recolor a die's body (chamfered edges) to mark it as belonging to a specific
+  // player — used during the opening-roll sequence so observers can see at a
+  // glance whose roll is in play. Passing null restores the default cherry-red.
+  setDieTint(i, colorHex) {
+    const m = this.dieMeshes[i];
+    if (!m) return;
+    const reds = m.userData.materialsRed;
+    if (!reds) return;
+    const desired = (colorHex == null) ? null : colorHex;
+    if (m.userData._tintHex === desired) return;
+    m.userData._tintHex = desired;
+    if (m.material !== reds) m.material = reds;
+    const body = reds[6];
+    if (desired == null) {
+      body.color.setHex(0xd8243f);
+      if (body.emissive) body.emissive.setHex(0x000000);
+      body.emissiveIntensity = 0;
+    } else {
+      body.color.setHex(desired);
+      if (body.emissive) body.emissive.setHex(desired);
+      body.emissiveIntensity = 0.55;
+    }
+  }
   setLocked(i, locked) {
     if (this.dieMeshes[i].visible) this.dieMeshes[i].userData.lockRing.visible = locked;
     else this.dieMeshes[i].userData.lockRing.visible = false;

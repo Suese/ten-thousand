@@ -285,7 +285,14 @@ export function renderGameState(state, myId) {
   if (phase === 'opening_roll' || (phase === 'rolling' && state.openingActiveId)) {
     const opener = state.players.find(p => p.id === state.openingActiveId);
     const c = colorForPlayer(state, state.openingActiveId);
-    bannerText = `<span class="banner-name" style="color:${c}">${opener?.name || '...'}</span>`;
+    const rolled = state.openingResults?.[state.openingActiveId];
+    if (rolled != null) {
+      bannerText = `<span class="banner-name" style="color:${c}">${opener?.name || '...'}</span> <span class="turn-pts">rolled ${rolled}</span>`;
+    } else if (state.openingActiveId === myId) {
+      bannerText = `<span class="banner-name" style="color:${c}">Roll for first!</span>`;
+    } else {
+      bannerText = `<span class="banner-name" style="color:${c}">${opener?.name || '...'}</span> <span class="banner-pass-pending">rolling for first</span>`;
+    }
   } else if (phase === 'game_over') {
     bannerText = `<span class="banner-name">GAME OVER</span>`;
   } else if (phase === 'busted') {
@@ -304,7 +311,10 @@ export function renderGameState(state, myId) {
   banner.innerHTML = bannerText;
 
   // Action buttons
-  els.rollBtn().disabled = !(phase === 'awaiting_roll' && isMyTurn);
+  const isOpener = phase === 'opening_roll'
+    && state.openingActiveId === myId
+    && state.openingResults?.[myId] == null;
+  els.rollBtn().disabled = !((phase === 'awaiting_roll' && isMyTurn) || isOpener);
   // keep+bank buttons activated during awaiting_keep & my turn (further gated by selection validity in updateSelectionUI)
   const inKeepPhase = phase === 'awaiting_keep' && isMyTurn;
   els.rollBtn().style.display = inKeepPhase ? 'none' : '';

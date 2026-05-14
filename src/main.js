@@ -294,11 +294,18 @@ let _rollHoldKind = null;
 function startRollHold(btnId) {
   if (_rollHoldKind) return;
   if (!currentState) return;
-  if (currentState.currentPlayerId !== myId) return;
-  if (btnId === 'roll-btn' && currentState.phase === 'awaiting_roll') {
+  const isOpener = currentState.phase === 'opening_roll'
+    && currentState.openingActiveId === myId
+    && currentState.openingResults
+    && currentState.openingResults[myId] == null;
+  const isMyTurn = currentState.currentPlayerId === myId;
+  if (btnId === 'roll-btn' && currentState.phase === 'awaiting_roll' && isMyTurn) {
     _rollHoldKind = 'roll';
     document.getElementById('roll-btn')?.classList.add('held');
-  } else if (btnId === 'keep-btn' && currentState.phase === 'awaiting_keep') {
+  } else if (btnId === 'roll-btn' && isOpener) {
+    _rollHoldKind = 'roll';
+    document.getElementById('roll-btn')?.classList.add('held');
+  } else if (btnId === 'keep-btn' && currentState.phase === 'awaiting_keep' && isMyTurn) {
     // Require a non-empty selection — the Keep button is disabled by the UI
     // when nothing is selected, so this is a belt-and-suspenders check.
     if (selection.size === 0) return;
@@ -656,6 +663,18 @@ function applyState(state) {
       for (let i = 0; i < 5; i++) scene.setSelected(i, remoteSel.has(i), ringColor);
     }
 
+    // Opening-roll tint — die 0 wears the current opener's player color so
+    // observers see whose turn it is at a glance.
+    const inOpening = state.phase === 'opening_roll'
+      || (state.phase === 'rolling' && state.openingActiveId);
+    if (inOpening && state.openingActiveId) {
+      const tint = colorHexForPlayer(state, state.openingActiveId);
+      scene.setDieTint(0, tint);
+      for (let i = 1; i < 5; i++) scene.setDieTint(i, null);
+    } else {
+      for (let i = 0; i < 5; i++) scene.setDieTint(i, null);
+    }
+
     redrawSelection();
   }
 }
@@ -898,6 +917,32 @@ function applyEvent(event) {
         const screen = scene.worldToScreen(event.point);
         comicBurstHit(screen.x, screen.y);
       }
+      break;
+    }
+    case 'opening_result': {
+      // Floating pip-value popup over the die so the rolled number is unmistakable.
+      const pos = scene.getDieScreenPos(0);
+      const color = currentState ? colorForPlayer(currentState, event.playerId) : null;
+      if (pos) scorePopup(`${event.value}`, pos.x, pos.y - 60, { big: true, color });
+      break;
+    }
+    case 'opening_first': {
+      sfx.scoreBig();
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2 - 80;
+      const player = currentState?.players.find(p => p.id === event.playerId);
+      const color = currentState ? colorForPlayer(currentState, event.playerId) : null;
+      scorePopup(`${player?.name || 'Player'} GOES FIRST!`, cx, cy, { big: true, color });
+      confettiBurst(cx, cy + 40, 60);
+      flashScreen('#ffd400', 0.32);
+      break;
+    }
+    case 'opening_rolloff': {
+      sfx.hotDice();
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2 - 80;
+      scorePopup('ROLL OFF!', cx, cy, { big: true });
+      flashScreen('#ff5060', 0.25);
       break;
     }
     case 'game_over': {

@@ -163,17 +163,26 @@ export class DicePhysics {
       b.sleep();
       this._faceTracker.delete(i);
     }
+    if (indices.length) {
+      const drop = new Set(indices);
+      this.activeIndices = this.activeIndices.filter(i => !drop.has(i));
+    }
   }
 
   // Portable Hole — turns off collision response on the die so gravity pulls
   // it straight through the felt. A small downward seed velocity makes the
-  // fall start immediately and consistently.
+  // fall start immediately and consistently. The die also drops out of
+  // activeIndices so settle detection treats it as already-done — otherwise
+  // isSettled() would wait forever on a face that never re-aligns mid-fall.
   enterPortableHole(dieIndex) {
     const b = this.bodies[dieIndex];
     b.collisionResponse = false;
     b.wakeUp();
     b.velocity.set(0, -4, 0);
     b.angularVelocity.set(0, 0, 0);
+    const ai = this.activeIndices.indexOf(dieIndex);
+    if (ai >= 0) this.activeIndices.splice(ai, 1);
+    this._faceTracker.delete(dieIndex);
   }
 
   // Restore parked dice to a default rest pose so they're visible again next roll.

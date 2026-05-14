@@ -118,25 +118,33 @@ export class GameRoom {
   }
 
   shakeStart(fromId) {
-    if (this.phase !== 'awaiting_roll' && this.phase !== 'awaiting_keep') return;
-    if (this.order[this.currentIdx] !== fromId) return;
+    if (this.phase === 'opening_roll') {
+      if (this.openingActiveId !== fromId) return;
+      if (this.openingResults[fromId] != null) return; // already rolled this round
+    } else if (this.phase === 'awaiting_roll' || this.phase === 'awaiting_keep') {
+      if (this.order[this.currentIdx] !== fromId) return;
+    } else return;
     if (this._shaking) return;
     this._shaking = true;
     this._shakeStartTs = Date.now();
     this._inHand = [];
-    for (let i = 0; i < this.diceState.length; i++) {
-      if (this.diceState[i].locked) continue;
-      if (this.activeEffects.destroyed.has(i)) continue;
-      if (this.activeEffects.hiddenNow.has(i)) continue;
-      if (this.phase === 'awaiting_keep' && this.selection.includes(i)) continue;
-      this._inHand.push(i);
+    if (this.phase === 'opening_roll') {
+      this._inHand.push(0);
+    } else {
+      for (let i = 0; i < this.diceState.length; i++) {
+        if (this.diceState[i].locked) continue;
+        if (this.activeEffects.destroyed.has(i)) continue;
+        if (this.activeEffects.hiddenNow.has(i)) continue;
+        if (this.phase === 'awaiting_keep' && this.selection.includes(i)) continue;
+        this._inHand.push(i);
+      }
     }
     this.emitState();
   }
 
   // Schedules the actual physics throw to fire at least 2 s after the shake
   // started. If the player held the button longer than 2 s, throws right away.
-  _scheduleThrow() {
+  _scheduleThrow(kind = 'turn') {
     if (this._rollPending) return;
     this._rollPending = true;
     const SHAKE_MIN_MS = 750;
@@ -151,7 +159,8 @@ export class GameRoom {
         return;
       }
       this._shaking = false;
-      this.beginRoll();
+      if (kind === 'opening') this.beginOpeningThrow();
+      else this.beginRoll();
     };
     if (remaining === 0) doThrow();
     else this._scheduleAt(remaining, doThrow);
@@ -262,6 +271,12 @@ export class GameRoom {
         break;
       }
       case 'portable_hole': {
+        const existing = this.activeEffects.portableHole[targetPlayerId] || [];
+        if (existing.length >= 2) {
+          inv[itemId] = (inv[itemId] || 0) + 1; // refund
+          this.emitEvent({ type: 'log', text: 'Already two dice in portable holes.', kind: 'reject' });
+          return;
+        }
         const idx = this.pickRandomEligibleDieIndex();
         if (idx == null) {
           inv[itemId] = (inv[itemId] || 0) + 1; // refund
@@ -270,6 +285,9 @@ export class GameRoom {
         }
         if (!this.activeEffects.portableHole[targetPlayerId]) this.activeEffects.portableHole[targetPlayerId] = [];
         this.activeEffects.portableHole[targetPlayerId].push(idx);
+        // Mark the die as out-of-play immediately so scoring, eligibility, and
+        // bust-state checks treat it as gone regardless of phase.
+        this.activeEffects.hiddenNow.add(idx);
         if (this.phase === 'awaiting_keep' || this.phase === 'rolling') {
           // Capture the die's current xz so clients can place the hole disc.
           // The physics body is ghosted (collisionResponse off + downward velocity)
@@ -277,7 +295,6 @@ export class GameRoom {
           // transforms during the fall; after ~1.1 s we park the body offstage.
           const b = this.physics.bodies[idx];
           const pos = [b.position.x, b.position.y, b.position.z];
-          this.activeEffects.hiddenNow.add(idx);
           this.selection = this.selection.filter(i => i !== idx);
           this.physics.enterPortableHole(idx);
           this.emitEvent({ type: 'portable_hole_animate', dieIndex: idx, position: pos, playerId: fromId });
@@ -495,10 +512,14 @@ export class GameRoom {
     }
     this.openingActiveId = this.openingPending.shift();
     this.physics.parkAll();
-    this.physics.throwDice([0]);
-    this.streaming = true;
-    this.phase = 'rolling';
-    this.emitEvent({ type: 'log', text: `${this.nameOf(this.openingActiveId)} rolls...` });
+    this.phase = 'opening_roll';
+    this._shaking = false;
+    this._rollPending = false;
+    this._inHand = [];
+    // Pulse a transforms event so clients clear the previous opener's settled
+    // die off the table before the next player is prompted to roll.
+    this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
+    this.emitEvent({ type: 'log', text: `${this.nameOf(this.openingActiveId)} — press Roll.` });
     this.emitState();
   }
 
@@ -511,21 +532,25 @@ export class GameRoom {
       const others = this.players.map(p => p.id).filter(id => id !== winnerId);
       this.order = [winnerId, ...others];
       this.currentIdx = 0;
-      this.emitEvent({ type: 'log', text: `${this.nameOf(winnerId)} goes first.` });
-      this.startTurn();
+      this.emitEvent({ type: 'opening_first', playerId: winnerId });
+      this.emitEvent({ type: 'log', text: `${this.nameOf(winnerId)} goes first!`, kind: 'bank' });
+      // Hold on the announcement banner before kicking off the first real turn.
+      this._scheduleAt(2400, () => this.startTurn());
     } else {
       // Tie — re-roll among tied players
       const names = top.map(id => this.nameOf(id)).join(', ');
-      this.emitEvent({ type: 'log', text: `Tie at ${max} between ${names} — rerolling.` });
+      this.emitEvent({ type: 'opening_rolloff', tied: top.slice() });
+      this.emitEvent({ type: 'log', text: `Roll off between ${names}.`, kind: 'bank' });
       this.openingPending = top.slice();
       this.openingResults = {};
-      this.beginNextOpeningRoll();
+      this._scheduleAt(1800, () => this.beginNextOpeningRoll());
     }
   }
 
   // --- Turn lifecycle ----
 
   startTurn() {
+    this.openingActiveId = null;
     this.turnPoints = 0;
     this.diceState = freshDice();
     this.selection = [];
@@ -542,6 +567,7 @@ export class GameRoom {
     this.activeEffects.weightedDice.clear();
     this.physics.clearWeightedDice();
     this.activeEffects.hiddenNow.clear();
+    this.activeEffects.portableHole = {};
     this.activeEffects.dookieZones = [];
     this.physics.setDookieZones([]);
     this.activeEffects.iceRinkActive = false;
@@ -554,6 +580,15 @@ export class GameRoom {
   }
 
   requestRoll(byId) {
+    if (this.phase === 'opening_roll') {
+      if (this.openingActiveId !== byId) return;
+      if (this.openingResults[byId] != null) return;
+      if (this._rollPending) return;
+      this.phase = 'rolling';
+      this.emitState();
+      this._scheduleThrow('opening');
+      return;
+    }
     if (this.phase !== 'awaiting_roll') return;
     if (this.order[this.currentIdx] !== byId) return;
     if (this._rollPending) return;
@@ -565,11 +600,21 @@ export class GameRoom {
     this._scheduleThrow();
   }
 
+  beginOpeningThrow() {
+    this._inHand = [];
+    this.physics.parkAll();
+    this.physics.throwDice([0]);
+    this.streaming = true;
+    this.phase = 'rolling';
+    this.emitState();
+    this.emitEvent({ type: 'roll_started', activeIndices: [0], hidden: [] });
+  }
+
   beginRoll() {
     this._turnRollCount = (this._turnRollCount || 0) + 1;
     this._inHand = []; // dice leave the hand and go into the throw
     const playerId = this.order[this.currentIdx];
-    const holes = (this.activeEffects.portableHole[playerId] || []).slice();
+    let holes = (this.activeEffects.portableHole[playerId] || []).slice();
 
     const active = [];
     const lockedIndices = [];
@@ -585,21 +630,27 @@ export class GameRoom {
     // would snap them to a different j-layout than where the lerp landed.
     lockedIndices.sort((a, b) => this.physics.bodies[a].position.x - this.physics.bodies[b].position.x);
     const lockedTransforms = lockedIndices.map(i => ({ index: i, value: this.diceState[i].value }));
-    // Hot dice: if everything was locked, reroll all five (clears portable holes too).
-    if (active.length === 0 && holes.length === 0) {
+    // Hot dice: every available (non-holed) die has been locked — reroll all
+    // five, which also restores any portable-holed dice back into play.
+    if (active.length === 0) {
       this.diceState = freshDice();
+      if (holes.length) {
+        this.physics.restoreParked(holes);
+        this.activeEffects.portableHole[playerId] = [];
+        for (const idx of holes) this.activeEffects.hiddenNow.delete(idx);
+        holes = [];
+      }
       for (let i = 0; i < 5; i++) active.push(i);
       lockedTransforms.length = 0;
       this.emitEvent({ type: 'hot_dice', playerId });
       this.emitEvent({ type: 'log', text: 'Hot dice — rerolling all five!' });
     }
 
-    // Hide portable-hole dice for this single roll.
+    // Portable-holed dice are parked offstage for this throw; they stay there
+    // (hiddenNow set still includes them) so they remain off the table until
+    // the turn ends or a hot-dice reroll clears them.
     this._hiddenForRoll = holes;
     this.physics.parkIndices(holes);
-    // Once portable holes are queued for this roll, clear the "hiddenNow" flag —
-    // the dice are now properly accounted for as roll-scoped holes.
-    this.activeEffects.hiddenNow.clear();
 
     this.phase = 'rolling';
     this.physics.throwDice(active, lockedTransforms);
@@ -798,11 +849,14 @@ export class GameRoom {
       // Opening-roll path: read die 0
       const v = this.physics.getValues()[0];
       this.openingResults[this.openingActiveId] = v;
+      this.emitEvent({ type: 'opening_result', playerId: this.openingActiveId, value: v });
       this.emitEvent({ type: 'log', text: `${this.nameOf(this.openingActiveId)} rolled ${v}.` });
-      this.openingActiveId = null;
+      // Keep openingActiveId set so clients can keep tinting die 0 in their
+      // color while the result is displayed; beginNextOpeningRoll reassigns it
+      // (or resolveOpeningRoll clears it indirectly via startTurn).
       this.phase = 'opening_roll';
       this.emitState();
-      this._scheduleAt(800, () => this.beginNextOpeningRoll());
+      this._scheduleAt(1400, () => this.beginNextOpeningRoll());
       return;
     }
 
@@ -838,11 +892,8 @@ export class GameRoom {
     // (Weighted dice are biased toward 1 by continuous torque in the physics tick;
     // beyond that they behave exactly like normal dice — no snapping, no overrides.)
 
-    // Restore portable-hole dice after their skipped roll.
-    if (hidden.length) {
-      this.activeEffects.portableHole[playerId] = (this.activeEffects.portableHole[playerId] || []).filter(i => !hidden.includes(i));
-      this.physics.restoreParked(hidden);
-    }
+    // Portable-holed dice persist across rolls within a turn — no restoration
+    // here. They come back either at startTurn or on a hot-dice reroll.
 
     // Re-broadcast transforms once so any forced face-up shows up on clients.
     this.emitEvent({ type: 'transforms', t: this.physics.getTransforms() });
@@ -1076,7 +1127,10 @@ export class GameRoom {
       this._finalizeBank(byId, lerpTotalMs);
     } else if (action === 'reroll') {
       // Bonus check (only after the first roll, only on a hot-dice-bound commit).
-      if (this._turnRollCount > 1 && this.diceState.every(d => d.locked)) {
+      // The full-house / five-of-a-kind bonuses only apply when every die was on
+      // the table — a hot dice triggered by 2 holed + 3 kept doesn't count.
+      const outstandingHoles = (this.activeEffects.portableHole[byId] || []).length;
+      if (this._turnRollCount > 1 && outstandingHoles === 0 && this.diceState.every(d => d.locked)) {
         const counts = {};
         for (const d of this.diceState) counts[d.value] = (counts[d.value] || 0) + 1;
         const dist = Object.values(counts).sort((a, b) => b - a);
